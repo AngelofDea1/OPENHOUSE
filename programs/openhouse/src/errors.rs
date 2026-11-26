@@ -40,4 +40,13 @@ pub enum OpenHouseError {
     AmountTooSmall,
     #[msg("Commitment cannot be reclaimed yet")]
     CommitmentNotReclaimable,
+    // --- batch3 additions (keep existing codes unchanged above) ---
+    #[msg("Round is not finished yet")]
+    RoundNotFinished,
+    #[msg("Invalid action for this game")]
+    InvalidAction,
+    #[msg("Force settle timeout not reached yet")]
+    ForceSettleTimeoutNotReached,
+    #[msg("Action log is full (max 32 actions)")]
+    ActionLogFull,
 }

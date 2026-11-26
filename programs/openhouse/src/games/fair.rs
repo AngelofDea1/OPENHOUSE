@@ -33,10 +33,26 @@ pub fn first_u32(server_seed: &[u8; 32], client_seed: &[u8; 32], nonce: u64, i: 
 }
 
 /// The first `count` (up to 16) u32 draws of the stream: round 0 gives draws 0..8, round 1 gives 8..16.
+/// (Kept for backward compatibility with batch1/batch2 games.)
 pub fn draws(server_seed: &[u8; 32], client_seed: &[u8; 32], nonce: u64, count: usize) -> [u32; 16] {
     let mut out = [0u32; 16];
     let rounds = (count + 7) / 8;
-    for r in 0..rounds {
+    for r in 0..rounds.min(2) {
+        let m = mac(server_seed, client_seed, nonce, r as u32);
+        for i in 0..8 {
+            out[r * 8 + i] = u32::from_be_bytes([m[4 * i], m[4 * i + 1], m[4 * i + 2], m[4 * i + 3]]);
+        }
+    }
+    out
+}
+
+/// Extended draw stream for batch3 games: up to 64 draws (rounds 0..7, 8 draws per round).
+/// draw i = bytes [4*(i%8), 4*(i%8)+4) of mac(round = i/8), big endian u32.
+pub fn draws64(server_seed: &[u8; 32], client_seed: &[u8; 32], nonce: u64, count: usize) -> [u32; 64] {
+    debug_assert!(count <= 64);
+    let mut out = [0u32; 64];
+    let rounds = (count + 7) / 8;
+    for r in 0..rounds.min(8) {
         let m = mac(server_seed, client_seed, nonce, r as u32);
         for i in 0..8 {
             out[r * 8 + i] = u32::from_be_bytes([m[4 * i], m[4 * i + 1], m[4 * i + 2], m[4 * i + 3]]);

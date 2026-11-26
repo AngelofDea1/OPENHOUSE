@@ -8,7 +8,8 @@ pub mod state;
 
 pub use instructions::*;
 
-declare_id!("Ehd64oouV9Avs6HkkkyNcw74x8WBggLHRx8EBrXnAq91");
+// Old devnet id retired: Ehd64oouV9Avs6HkkkyNcw74x8WBggLHRx8EBrXnAq91
+declare_id!("Fd45hQrGoUm5LqSdzcCNA7Xa2NrHroXaVFVXDQqbzGT4");
 
 #[program]
 pub mod openhouse {
@@ -57,6 +58,12 @@ pub mod openhouse {
     }
     pub fn settle_bet(ctx: Context<SettleBet>, server_seed: [u8; 32], payout_hint: u64) -> Result<()> {
         instructions::settle_bet::handler(ctx, server_seed, payout_hint)
+    }
+    pub fn play_action(ctx: Context<PlayAction>, action: u8) -> Result<()> {
+        instructions::play_action::handler(ctx, action)
+    }
+    pub fn force_settle(ctx: Context<ForceSettle>, server_seed: [u8; 32]) -> Result<()> {
+        instructions::force_settle::handler(ctx, server_seed)
     }
     pub fn refund_bet(ctx: Context<RefundBet>) -> Result<()> {
         instructions::refund_bet::handler(ctx)

@@ -2,7 +2,7 @@ import { PublicKey, SystemProgram, TransactionInstruction } from '@solana/web3.j
 import { sha256 } from './fair';
 
 const te = new TextEncoder();
-export const DEFAULT_PROGRAM_ID = 'Ehd64oouV9Avs6HkkkyNcw74x8WBggLHRx8EBrXnAq91';
+export const DEFAULT_PROGRAM_ID = 'Fd45hQrGoUm5LqSdzcCNA7Xa2NrHroXaVFVXDQqbzGT4';
 
 // ---------- discriminators ----------
 const cache = new Map<string, Uint8Array>();

@@ -96,7 +96,15 @@ pub fn handler(
     vault.reserved_payouts = vault.reserved_payouts.checked_add(risk).ok_or(OpenHouseError::MathOverflow)?;
     let nonce = player.nonce;
     player.nonce = nonce.checked_add(1).ok_or(OpenHouseError::MathOverflow)?;
-    player.open = OpenBet { active: true, game_id, amount, max_payout, params, client_seed, server_seed_hash, nonce, created_at: now };
+    player.open = OpenBet {
+        active: true, game_id, amount, max_payout, params, client_seed, server_seed_hash, nonce,
+        created_at: now,
+        // multi-step fields (batch3) — zeroed for all games, updated by play_action
+        actions: [0u8; 32],
+        action_count: 0,
+        last_action_at: now,
+        extra_stake: 0,
+    };
 
     emit!(BetPlaced { player: player.wallet, nonce, game_id, amount, max_payout, params, client_seed, server_seed_hash });
     Ok(())

@@ -3,7 +3,12 @@ use anchor_lang::prelude::*;
 use crate::errors::OpenHouseError;
 
 pub mod fair;
+pub mod multistep;
 pub mod tables;
+
+pub use multistep::{
+    is_blackjack, is_multistep, replay, validate_action_shape, Outcome,
+};
 
 /// Games the program can fully verify on chain. Every other game is settled by the
 /// settler inside a hard cap (see top_multiplier_x100) until it is ported.
@@ -23,6 +28,12 @@ pub enum Kind {
     SicBo,
     Dragon,
     Baccarat,
+    // Batch 3 — multi-step games
+    Mines,
+    HiLo,
+    Towers,
+    Blackjack,
+    Poker,
 }
 
 fn name(game: &[u8; 16]) -> &[u8] {
@@ -46,6 +57,12 @@ pub fn verified_kind(game: &[u8; 16]) -> Option<Kind> {
         b"sicbo" => Some(Kind::SicBo),
         b"dragon" => Some(Kind::Dragon),
         b"baccarat" => Some(Kind::Baccarat),
+        // batch3 — multi-step games are verified on-chain via replay()
+        b"mines" => Some(Kind::Mines),
+        b"hilo" => Some(Kind::HiLo),
+        b"towers" => Some(Kind::Towers),
+        b"blackjack" => Some(Kind::Blackjack),
+        b"poker" => Some(Kind::Poker),
         _ => None,
     }
 }
@@ -273,6 +290,22 @@ pub fn max_payout(kind: Kind, params: &[u8; 32], amount: u64) -> Result<u64> {
             };
             from_x100(amount, m)
         }
+        // Batch 3 multi-step — delegate to multistep module.
+        Kind::Mines | Kind::HiLo | Kind::Towers | Kind::Blackjack | Kind::Poker => {
+            multistep::multistep_max_payout(game_id_for_multistep(kind), params, amount)
+        }
+    }
+}
+
+/// Helper to get a static game_id for multistep kinds.
+fn game_id_for_multistep(kind: Kind) -> &'static [u8; 16] {
+    match kind {
+        Kind::Mines => b"mines\0\0\0\0\0\0\0\0\0\0\0",
+        Kind::HiLo => b"hilo\0\0\0\0\0\0\0\0\0\0\0\0",
+        Kind::Towers => b"towers\0\0\0\0\0\0\0\0\0\0",
+        Kind::Blackjack => b"blackjack\0\0\0\0\0\0\0",
+        Kind::Poker => b"poker\0\0\0\0\0\0\0\0\0\0\0",
+        _ => b"\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0",
     }
 }
 
@@ -355,6 +388,11 @@ pub fn settle_payout(kind: Kind, params: &[u8; 32], amount: u64, server: &[u8; 3
                 ((d[10] as u64 * 13) >> 32) as u8,
             ];
             from_x100(amount, baccarat_x100(params[0], ranks))
+        }
+        // Batch 3 multi-step games: should not reach settle_payout; they use replay() directly.
+        // Return an error so callers know to use replay().
+        Kind::Mines | Kind::HiLo | Kind::Towers | Kind::Blackjack | Kind::Poker => {
+            Err(error!(OpenHouseError::InvalidGameParams))
         }
     }
 }

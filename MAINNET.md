@@ -1,4 +1,5 @@
 # Mainnet structure
+<!-- Old devnet program ID retired (batch3 layout change): Ehd64oouV9Avs6HkkkyNcw74x8WBggLHRx8EBrXnAq91 -->
 
 Devnet stays the live network until every gate in section 1 is done. Nothing in this repo sends real money by default:
 the site config has `mainnetEnabled:false`, and the settler refuses to sign on `mainnet-beta` without `MAINNET_CONFIRM=yes-real-money`.

@@ -5,10 +5,10 @@ resolution = true
 skip-lint = false
 
 [programs.localnet]
-openhouse = "Ehd64oouV9Avs6HkkkyNcw74x8WBggLHRx8EBrXnAq91"
+openhouse = "Fd45hQrGoUm5LqSdzcCNA7Xa2NrHroXaVFVXDQqbzGT4"
 
 [programs.devnet]
-openhouse = "Ehd64oouV9Avs6HkkkyNcw74x8WBggLHRx8EBrXnAq91"
+openhouse = "Fd45hQrGoUm5LqSdzcCNA7Xa2NrHroXaVFVXDQqbzGT4"
 
 [registry]
 url = "https://api.apr.dev"

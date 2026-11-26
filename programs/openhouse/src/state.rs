@@ -34,6 +34,8 @@ pub struct VaultShare {
     pub bump: u8,
 }
 
+/// Multi-step games append player decisions here before the seed is revealed.
+/// Max 32 actions; action 255 means cash out in Mines/HiLo/Towers.
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Default, InitSpace)]
 pub struct OpenBet {
     pub active: bool,
@@ -45,6 +47,15 @@ pub struct OpenBet {
     pub server_seed_hash: [u8; 32],
     pub nonce: u64,
     pub created_at: i64,
+    // --- multi-step fields (batch3) ---
+    /// Logged player actions. Valid indices are 0..action_count.
+    pub actions: [u8; 32],
+    /// How many actions are recorded.
+    pub action_count: u8,
+    /// Timestamp of the last play_action call (or created_at before any action).
+    pub last_action_at: i64,
+    /// Extra stake added by doubling (Blackjack). 0 for all other games.
+    pub extra_stake: u64,
 }
 
 #[account]
@@ -97,8 +108,12 @@ mod layout {
         assert_eq!(Config::INIT_SPACE, 142);
         assert_eq!(Vault::INIT_SPACE, 49);
         assert_eq!(VaultShare::INIT_SPACE, 41);
-        assert_eq!(OpenBet::INIT_SPACE, 145);
-        assert_eq!(Player::INIT_SPACE, 298);
+        // OpenBet: bool(1)+[u8;16](16)+u64(8)+u64(8)+[u8;32](32)+[u8;32](32)+[u8;32](32)+u64(8)+i64(8)
+        //        + [u8;32](32)+u8(1)+i64(8)+u64(8) = 194
+        assert_eq!(OpenBet::INIT_SPACE, 194);
+        // Player: Pubkey(32)+u64(8)+u64(8)+Pubkey(32)+i64(8)+u64(8)+u64(8)+u64(8)+i64(8)+u64(8)
+        //       + u64(8)+i64(8)+i64(8)+OpenBet(194)+u8(1) = 347
+        assert_eq!(Player::INIT_SPACE, 347);
         assert_eq!(SeedCommitment::INIT_SPACE, 82);
     }
 }
