@@ -1,5 +1,5 @@
 import { Connection, PublicKey } from '@solana/web3.js';
-import { OpenHouse, decodeConfig, decodeVault, decodePlayer, PLAYER_SIZE } from '../src/program.js';
+import { OpenHouse, decodeConfig, decodeVault, decodePlayer, PLAYER_SIZE } from '../src/index.ts';
 
 const RPC_URL = process.env.RPC_URL || process.env.SOLANA_RPC_URL || 'https://api.devnet.solana.com';
 const PROGRAM_ID = process.env.PROGRAM_ID;
