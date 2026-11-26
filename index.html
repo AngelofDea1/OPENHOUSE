@@ -8475,14 +8475,58 @@ GAME_UI.mines=root=>{
   $('#mC').onchange=ui;
   $('#go').onclick=async()=>{
     if(busy)return;
-    if(g){if(g.k)end(false);return}
+    if(g){
+      if(g.live){
+        if(!g.k)return;
+        busy=true;ui();
+        try{
+          await window.OH_CHAIN.playAction(255);
+          const res=await window.OH_CHAIN.settleOpen(g.wallet);
+          const payout=Number(res.payout)/1e9;
+          syncBalance(g.wallet);
+          pay(g.a,payout,payout>0?(payout/g.a).toFixed(2)+'x':'mine');
+          if(payout<=0)SND.boom();
+          g=null;busy=false;ui();
+        }catch(err){toast(window.OH_CHAIN.explain(err));busy=false;ui();}
+        return;
+      }
+      if(g.k)end(false);return
+    }
     const a=getBet();if(!take(a))return;busy=true;SND.click();
-    const m=+$('#mC').value,f=await fdraw('mines',24,m);
+    const m=+$('#mC').value;
+    if(isLive('mines')&&!st.practice){
+      const C=window.OH_CHAIN;
+      if(!st.wallet||!C||!C.getProvider()){toast('Connect a wallet to play for real');busy=false;ui();return}
+      try{
+        const seed=await C.nextSeed(st.wallet);
+        const placed=await C.placeBet('mines',a,{mines:m},seed.seedHash);
+        g={a,m,live:true,wallet:st.wallet,placed,rev:new Set(),k:0};
+        cells().forEach(c=>{c.className='tile';c.disabled=false;c.querySelector('.bk').innerHTML=''});busy=false;ui();
+      }catch(err){toast(C.explain(err));busy=false;ui();}
+      return;
+    }
+    const f=await fdraw('mines',24,m);
     g={a,m,mines:minePos(f,m),rev:new Set(),k:0};
     cells().forEach(c=>{c.className='tile';c.disabled=false;c.querySelector('.bk').innerHTML=''});busy=false;ui();
   };
-  $('#mG').onclick=e=>{
-    const c=e.target.closest('.tile');if(!c||!g||c.disabled)return;const i=+c.dataset.i;if(g.rev.has(i))return;
+  $('#mG').onclick=async e=>{
+    const c=e.target.closest('.tile');if(!c||!g||c.disabled||busy)return;const i=+c.dataset.i;if(g.rev.has(i))return;
+    if(g.live){
+      busy=true;ui();
+      try{
+        await window.OH_CHAIN.playAction(i);
+        g.rev.add(i);g.k++;show(c,'gem');SND.gem(g.k);
+        if(g.k===25-g.m){
+          const res=await window.OH_CHAIN.settleOpen(g.wallet);
+          const payout=Number(res.payout)/1e9;
+          syncBalance(g.wallet);
+          pay(g.a,payout,payout>0?(payout/g.a).toFixed(2)+'x':'mine');
+          g=null;
+        }
+        busy=false;ui();
+      }catch(err){toast(window.OH_CHAIN.explain(err));busy=false;ui();}
+      return;
+    }
     g.rev.add(i);
     if(g.mines.includes(i)){show(c,'mine');end(true,i);return}
     g.k++;show(c,'gem');SND.gem(g.k);
@@ -8659,6 +8703,15 @@ GAME_UI.hilo=root=>{
   function trail(c,ok){const s=document.createElement('span');s.className=ok?'ok':'';s.textContent=cardStr(c);s.style.color=(c.s===1||c.s===2)?'var(--bad)':'var(--tx)';$('#hTrail').appendChild(s);const t=$('#hTrail');while(t.children.length>12)t.firstChild.remove()}
   async function guess(hi){
     if(!g||busy)return;busy=true;ui();SND.click();
+    if(g.live){
+      try{
+        await window.OH_CHAIN.playAction(hi?0:1);
+        g.k++;SND.gem(g.k);
+        if(g.k>=19){await cash();return}
+        busy=false;ui();
+      }catch(err){toast(window.OH_CHAIN.explain(err));busy=false;ui();}
+      return;
+    }
     const cur=g.cards[g.k],nx=g.cards[g.k+1];
     const el=addCard(hand,nx,true);await wait(60);el.classList.remove('down');SND.tick(2);await wait(520);
     if(dead)return;
@@ -8667,11 +8720,35 @@ GAME_UI.hilo=root=>{
       if(g.k>=19){await cash();return}busy=false;ui()}
     else{SND.lose();trail(cur,false);const a=g.a;g=null;pay(a,0,'bust');busy=false;ui();$('#bet').disabled=false}
   }
-  async function cash(){const a=g.a,m=g.m;g=null;busy=false;pay(a,r8(a*m),m.toFixed(2)+'x');ui();$('#bet').disabled=false}
+  async function cash(){
+    if(g&&g.live){
+      busy=true;ui();
+      try{
+        if(g.k<19)await window.OH_CHAIN.playAction(255);
+        const res=await window.OH_CHAIN.settleOpen(g.wallet);
+        const payout=Number(res.payout)/1e9,a=g.a;
+        syncBalance(g.wallet);
+        g=null;busy=false;pay(a,payout,payout>0?(payout/a).toFixed(2)+'x':'bust');ui();$('#bet').disabled=false;
+      }catch(err){toast(window.OH_CHAIN.explain(err));busy=false;ui();}
+      return;
+    }
+    const a=g.a,m=g.m;g=null;busy=false;pay(a,r8(a*m),m.toFixed(2)+'x');ui();$('#bet').disabled=false
+  }
   $('#hHi').onclick=()=>guess(true);$('#hLo').onclick=()=>guess(false);
   $('#go').onclick=async()=>{
     if(busy)return;if(g){if(g.k)cash();return}
     const a=getBet();if(!take(a))return;busy=true;SND.click();
+    if(isLive('hilo')&&!st.practice){
+      const C=window.OH_CHAIN;
+      if(!st.wallet||!C||!C.getProvider()){toast('Connect a wallet to play for real');busy=false;ui();return}
+      try{
+        const seed=await C.nextSeed(st.wallet);
+        const placed=await C.placeBet('hilo',a,{},seed.seedHash);
+        g={a,k:0,m:1,live:true,wallet:st.wallet,placed,cards:Array.from({length:20},()=>({r:6,s:0}))};
+        hand.innerHTML='';$('#hTrail').innerHTML='';addCard(hand,g.cards[0],true);busy=false;ui();
+      }catch(err){toast(C.explain(err));busy=false;ui();}
+      return;
+    }
     const f=await fdraw('hilo',40);g={a,k:0,m:1,cards:Array.from({length:20},(_,i)=>iCard(f,i))};
     hand.innerHTML='';$('#hTrail').innerHTML='';addCard(hand,g.cards[0],false);busy=false;ui();
   };
@@ -8701,13 +8778,55 @@ GAME_UI.towers=root=>{
   function end(hit){const a=g.a,m=g.m;reveal();if(hit){SND.boom();OHLIB.gsap.fromTo('#tw',{x:-8},{x:0,duration:.55,ease:'elastic.out(1,.2)'});pay(a,0,'tower')}else pay(a,r8(a*m),m.toFixed(2)+'x');g=null;busy=false;ui();$('#bet').disabled=false}
   seg('#tLv',v=>{lv=v;paint()});
   $('#go').onclick=async()=>{
-    if(busy)return;if(g){if(g.k)end(false);return}
+    if(busy)return;
+    if(g){
+      if(g.live){
+        if(!g.k)return;
+        busy=true;ui();
+        try{
+          await window.OH_CHAIN.playAction(255);
+          const res=await window.OH_CHAIN.settleOpen(g.wallet);
+          const payout=Number(res.payout)/1e9,a=g.a;
+          syncBalance(g.wallet);
+          g=null;busy=false;pay(a,payout,payout>0?(payout/a).toFixed(2)+'x':'tower');ui();$('#bet').disabled=false;
+        }catch(err){toast(window.OH_CHAIN.explain(err));busy=false;ui();}
+        return;
+      }
+      if(g.k)end(false);return
+    }
     const a=getBet();if(!take(a))return;busy=true;SND.click();
-    const c=cols(),f=await fdraw('towers',TW_FLOORS,c);g={a,k:0,m:1,c,bombs:f.map(v=>Math.floor(v*c))};paint();busy=false;ui();
+    const c=cols();
+    if(isLive('towers')&&!st.practice){
+      const C=window.OH_CHAIN;
+      if(!st.wallet||!C||!C.getProvider()){toast('Connect a wallet to play for real');busy=false;ui();return}
+      try{
+        const seed=await C.nextSeed(st.wallet);
+        const placed=await C.placeBet('towers',a,{difficulty:lv==='easy'?0:lv==='medium'?1:2},seed.seedHash);
+        g={a,k:0,m:1,c,live:true,wallet:st.wallet,placed};paint();busy=false;ui();
+      }catch(err){toast(C.explain(err));busy=false;ui();}
+      return;
+    }
+    const f=await fdraw('towers',TW_FLOORS,c);g={a,k:0,m:1,c,bombs:f.map(v=>Math.floor(v*c))};paint();busy=false;ui();
   };
-  $('#tw').onclick=e=>{
-    const b=e.target.closest('.twt');if(!b||!g||b.disabled)return;const fl=+b.closest('.twr').dataset.r;if(fl!==g.k)return;
-    const c=+b.dataset.c;b.classList.add('done','shown');
+  $('#tw').onclick=async e=>{
+    const b=e.target.closest('.twt');if(!b||!g||b.disabled||busy)return;const fl=+b.closest('.twr').dataset.r;if(fl!==g.k)return;
+    const c=+b.dataset.c;
+    if(g.live){
+      busy=true;ui();
+      try{
+        await window.OH_CHAIN.playAction(c);
+        b.classList.add('done','shown','gem');b.innerHTML=GEM;g.k++;g.m=twMult(g.c,g.k);SND.gem(g.k);
+        if(g.k===TW_FLOORS){
+          const res=await window.OH_CHAIN.settleOpen(g.wallet);
+          const payout=Number(res.payout)/1e9,a=g.a;
+          syncBalance(g.wallet);
+          g=null;pay(a,payout,payout>0?(payout/a).toFixed(2)+'x':'tower');
+        }
+        busy=false;ui();$('#bet').disabled=!!g;
+      }catch(err){toast(window.OH_CHAIN.explain(err));busy=false;ui();}
+      return;
+    }
+    b.classList.add('done','shown');
     if(g.bombs[fl]===c){b.innerHTML=BOMB;b.classList.add('bomb');end(true);return}
     b.innerHTML=GEM;b.classList.add('gem');g.k++;g.m=twMult(g.c,g.k);SND.gem(g.k);
     if(g.k===TW_FLOORS)end(false);else ui();
@@ -8980,19 +9099,62 @@ GAME_UI.blackjack=root=>{
     pay(a,r8(ret),ret>a?(ret/a).toFixed(2)+'x':ret===a?'push':'0.00x');
     g=null;busy=false;btns(false);Q('#bet').disabled=false;
   }
+  async function liveSettle(){
+    busy=true;btns(false);
+    try{
+      const res=await window.OH_CHAIN.settleOpen(g.wallet);
+      const payout=Number(res.payout)/1e9,a=g.a;
+      syncBalance(g.wallet);
+      Q('#bMsg').innerHTML=payout>a?`<span class="win">You win ${(payout/a).toFixed(2)}x</span>`:payout===a?'Push':`<span class="bad">House takes it</span>`;
+      pay(a,payout,payout>a?(payout/a).toFixed(2)+'x':payout===a?'push':'0.00x');
+      g=null;busy=false;btns(false);Q('#bet').disabled=false;
+    }catch(err){toast(window.OH_CHAIN.explain(err));busy=false;btns(true);}
+  }
   async function hit(){
-    if(!g||busy)return;busy=true;btns(false);const c=draw();g.p.push(c);addCard($('#pH'),c,false);SND.click();setTot();await wait(420);if(dead)return;busy=false;
+    if(!g||busy)return;
+    if(g.live){
+      busy=true;btns(false);SND.click();
+      try{await window.OH_CHAIN.playAction(0);g.hits++;busy=false;btns(true);}catch(err){toast(window.OH_CHAIN.explain(err));busy=false;btns(true);}
+      return;
+    }
+    busy=true;btns(false);const c=draw();g.p.push(c);addCard($('#pH'),c,false);SND.click();setTot();await wait(420);if(dead)return;busy=false;
     if(bjVal(g.p)>=21){if(bjVal(g.p)>21){settle()}else await finish()}else btns(true);
   }
   $('#bHit').onclick=hit;
-  $('#bStand').onclick=()=>{if(g&&!busy)finish()};
+  $('#bStand').onclick=async()=>{
+    if(!g||busy)return;
+    if(g.live){
+      busy=true;btns(false);SND.click();
+      try{await window.OH_CHAIN.playAction(1);await liveSettle();}catch(err){toast(window.OH_CHAIN.explain(err));busy=false;btns(true);}
+      return;
+    }
+    finish();
+  };
   $('#bDbl').onclick=async()=>{
-    if(!g||busy||g.p.length!==2)return;if(!take(g.a)){return}g.a=r8(g.a*2);busy=true;btns(false);
+    if(!g||busy)return;
+    if(g.live){
+      busy=true;btns(false);SND.click();
+      try{await window.OH_CHAIN.playAction(2);await liveSettle();}catch(err){toast(window.OH_CHAIN.explain(err));busy=false;btns(true);}
+      return;
+    }
+    if(g.p.length!==2)return;if(!take(g.a)){return}g.a=r8(g.a*2);busy=true;btns(false);
     const c=draw();g.p.push(c);addCard($('#pH'),c,false);SND.click();setTot();await wait(520);if(dead)return;busy=false;
     if(bjVal(g.p)>21)settle();else await finish();
   };
   $('#go').onclick=async()=>{
     if(busy||g)return;const a=getBet();if(!take(a))return;busy=true;$('#go').disabled=true;$('#bet').disabled=true;
+    if(isLive('blackjack')&&!st.practice){
+      const C=window.OH_CHAIN;
+      if(!st.wallet||!C||!C.getProvider()){toast('Connect a wallet to play for real');busy=false;$('#go').disabled=false;$('#bet').disabled=false;return}
+      try{
+        const seed=await C.nextSeed(st.wallet);
+        const placed=await C.placeBet('blackjack',a,{},seed.seedHash);
+        g={a,live:true,wallet:st.wallet,placed,hits:0,p:[{r:0,s:0},{r:0,s:1}],d:[{r:0,s:2}]};
+        $('#pH').innerHTML='';$('#dH').innerHTML='';$('#bP').innerHTML='';$('#bD').innerHTML='';Q('#bMsg').textContent='Your move (Hit, Stand, or Double)';
+        busy=false;btns(true);
+      }catch(err){toast(C.explain(err));busy=false;$('#go').disabled=false;$('#bet').disabled=false;}
+      return;
+    }
     const f=await fdraw('blackjack',51);if(dead)return;g={a,deck:deckOf(f),i:0,p:[],d:[],hide:true};
     $('#pH').innerHTML='';$('#dH').innerHTML='';$('#bP').innerHTML='';$('#bD').innerHTML='';Q('#bMsg').textContent='Dealing';
     const seq=[['p',false],['d',false],['p',false],['d',true]];
@@ -9066,12 +9228,38 @@ GAME_UI.poker=root=>{
     if(busy)return;
     if(!g){
       const a=getBet();if(!take(a))return;busy=true;$('#go').disabled=true;$('#bet').disabled=true;$$('#pTab span').forEach(s=>s.classList.remove('on'));
+      if(isLive('poker')&&!st.practice){
+        const C=window.OH_CHAIN;
+        if(!st.wallet||!C||!C.getProvider()){toast('Connect a wallet to play for real');busy=false;$('#go').disabled=false;$('#bet').disabled=false;return}
+        try{
+          const seed=await C.nextSeed(st.wallet);
+          const placed=await C.placeBet('poker',a,{},seed.seedHash);
+          g={a,live:true,wallet:st.wallet,placed,phase:'hold'};
+          const host=$('#pHand');host.innerHTML='';
+          for(let i=0;i<5;i++){const w=cardAt(i,{r:0,s:0},true);w.disabled=false;host.appendChild(w);}
+          Q('#pMsg').textContent='Tap cards to hold, then draw';$('#go').textContent='Draw';$('#go').disabled=false;busy=false;
+        }catch(err){toast(C.explain(err));busy=false;$('#go').disabled=false;$('#bet').disabled=false;}
+        return;
+      }
       const f=await fdraw('poker',51),deck=deckOf(f);g={a,deck,hand:deck.slice(0,5),phase:'deal'};
       const host=$('#pHand');host.innerHTML='';
       for(let i=0;i<5;i++){const w=cardAt(i,g.hand[i],true);host.appendChild(w);await wait(60);w.querySelector('.pc').classList.remove('down');SND.click();await wait(200)}
       g.phase='hold';hold().forEach(b=>b.disabled=false);Q('#pMsg').textContent='Tap cards to hold, then draw';$('#go').textContent='Draw';$('#go').disabled=false;busy=false;return;
     }
     if(g.phase!=='hold')return;busy=true;$('#go').disabled=true;g.phase='draw';
+    if(g.live){
+      const hs=hold();let mask=0;
+      hs.forEach((b,i)=>{b.disabled=true;if(b.getAttribute('aria-pressed')==='true')mask|=(1<<i);});
+      try{
+        await window.OH_CHAIN.playAction(mask);
+        const res=await window.OH_CHAIN.settleOpen(g.wallet);
+        const payout=Number(res.payout)/1e9,a=g.a,m=a>0?payout/a:0;
+        syncBalance(g.wallet);
+        Q('#pMsg').innerHTML=payout>0?`<span class="win">Win</span> pays ${m.toFixed(2)}x`:'<span class="bad">-</span>';
+        pay(a,payout,m?m.toFixed(2)+'x':'0x');g=null;busy=false;Q('#go').textContent='Deal';Q('#go').disabled=false;Q('#bet').disabled=false;
+      }catch(err){toast(window.OH_CHAIN.explain(err));g.phase='hold';hold().forEach(b=>b.disabled=false);busy=false;$('#go').disabled=false;}
+      return;
+    }
     let n=5;const hs=hold();
     for(let i=0;i<5;i++){const b=hs[i];b.disabled=true;if(b.getAttribute('aria-pressed')!=='true'){const c=g.deck[n++];g.hand[i]=c;const pc=b.querySelector('.pc');pc.classList.add('down');await wait(230);b.innerHTML=cardEl(c,true)+'<span class="held">Held</span>';await wait(40);b.querySelector('.pc').classList.remove('down');SND.click()}}
     await wait(300);
