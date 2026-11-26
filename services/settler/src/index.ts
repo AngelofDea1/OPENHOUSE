@@ -154,11 +154,19 @@ app.get(['/bets', '/api/bets'], wrap(async (req, res) => {
   res.json({ ok: true, bets: out });
 }));
 
-/** Cron target. Takes back rent from commitments that were used or went stale. Needs the admin token. */
-app.post(['/admin/sweep', '/api/admin/sweep'], wrap(async (req, res) => {
-  const tok = env('ADMIN_TOKEN');
-  const given = Buffer.from(String(req.headers.authorization ?? '')), want = Buffer.from(`Bearer ${tok ?? ''}`);
-  if (!tok || given.length !== want.length || !timingSafeEqual(given, want)) return fail(res, 401, 'Not allowed');
+/** Cron target. Takes back rent from commitments that were used or went stale. Needs ADMIN_TOKEN or CRON_SECRET. */
+function isAuthorizedCron(authHeader: string | undefined): boolean {
+  const given = Buffer.from(String(authHeader ?? ''));
+  for (const tok of [env('ADMIN_TOKEN'), env('CRON_SECRET')]) {
+    if (!tok) continue;
+    const want = Buffer.from(`Bearer ${tok}`);
+    if (given.length === want.length && timingSafeEqual(given, want)) return true;
+  }
+  return false;
+}
+app.all(['/admin/sweep', '/api/admin/sweep'], wrap(async (req, res) => {
+  if (req.method !== 'GET' && req.method !== 'POST') return fail(res, 405, 'Method not allowed');
+  if (!isAuthorizedCron(req.headers.authorization)) return fail(res, 401, 'Not allowed');
   const accs = await conn.getProgramAccounts(oh.programId, { filters: [{ dataSize: 90 }] });
   const now = Math.floor(Date.now() / 1000);
   let reclaimed = 0;

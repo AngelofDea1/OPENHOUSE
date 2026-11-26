@@ -87077,10 +87077,18 @@ app.get(["/bets", "/api/bets"], wrap(async (req, res) => {
   }
   res.json({ ok: true, bets: out });
 }));
-app.post(["/admin/sweep", "/api/admin/sweep"], wrap(async (req, res) => {
-  const tok = env("ADMIN_TOKEN");
-  const given = Buffer.from(String(req.headers.authorization ?? "")), want = Buffer.from(`Bearer ${tok ?? ""}`);
-  if (!tok || given.length !== want.length || !(0, import_node_crypto5.timingSafeEqual)(given, want)) return fail(res, 401, "Not allowed");
+function isAuthorizedCron(authHeader) {
+  const given = Buffer.from(String(authHeader ?? ""));
+  for (const tok of [env("ADMIN_TOKEN"), env("CRON_SECRET")]) {
+    if (!tok) continue;
+    const want = Buffer.from(`Bearer ${tok}`);
+    if (given.length === want.length && (0, import_node_crypto5.timingSafeEqual)(given, want)) return true;
+  }
+  return false;
+}
+app.all(["/admin/sweep", "/api/admin/sweep"], wrap(async (req, res) => {
+  if (req.method !== "GET" && req.method !== "POST") return fail(res, 405, "Method not allowed");
+  if (!isAuthorizedCron(req.headers.authorization)) return fail(res, 401, "Not allowed");
   const accs = await conn.getProgramAccounts(oh.programId, { filters: [{ dataSize: 90 }] });
   const now = Math.floor(Date.now() / 1e3);
   let reclaimed = 0;

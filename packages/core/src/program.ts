@@ -168,6 +168,7 @@ export interface PlayerAcc {
   wallet: PublicKey; balance: bigint; nonce: bigint; sessionKey: PublicKey; sessionExpires: bigint; sessionMaxSpend: bigint; sessionSpent: bigint;
   dailyLossLimit: bigint; dailyLossDay: bigint; dailyLossAccumulated: bigint; pendingLimit: bigint; pendingLimitAt: bigint; excludedUntil: bigint; open: OpenBetAcc;
 }
+export const PLAYER_SIZE = 306;
 export function decodePlayer(d: Uint8Array): PlayerAcc {
   const g = d.slice(161, 177);
   const n = g.indexOf(0);
