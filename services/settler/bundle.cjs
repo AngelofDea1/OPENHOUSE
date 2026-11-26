@@ -22285,8 +22285,8 @@ var require_cookie_signature = __commonJS({
     exports2.unsign = function(val, secret) {
       if ("string" !== typeof val) throw new TypeError("Signed cookie string must be provided.");
       if (null == secret) throw new TypeError("Secret key must be provided.");
-      var str = val.slice(0, val.lastIndexOf(".")), mac = exports2.sign(str, secret);
-      return sha15(mac) == sha15(val) ? str : false;
+      var str = val.slice(0, val.lastIndexOf(".")), mac2 = exports2.sign(str, secret);
+      return sha15(mac2) == sha15(val) ? str : false;
     };
     function sha15(str) {
       return crypto8.createHash("sha1").update(str).digest("hex");
@@ -47803,7 +47803,7 @@ Message: ${transactionMessage}.
       }
       return signature2;
     }
-    function sleep(ms2) {
+    function sleep2(ms2) {
       return new Promise((resolve2) => setTimeout(resolve2, ms2));
     }
     function encodeData(type, fields) {
@@ -48613,7 +48613,7 @@ Message: ${transactionMessage}.
           }));
           if (connection._rpcEndpoint.includes("solana.com")) {
             const REQUESTS_PER_SECOND = 4;
-            await sleep(1e3 / REQUESTS_PER_SECOND);
+            await sleep2(1e3 / REQUESTS_PER_SECOND);
           }
           offset += chunkSize;
           array = array.slice(chunkSize);
@@ -49786,7 +49786,7 @@ Message: ${transactionMessage}.
               break;
             }
             console.error(`Server responded with ${res.status} ${res.statusText}.  Retrying after ${waitTime}ms delay...`);
-            await sleep(waitTime);
+            await sleep2(waitTime);
             waitTime *= 2;
           }
           const text = await res.text();
@@ -50908,7 +50908,7 @@ Message: ${transactionMessage}.
             let currentBlockHeight = await checkBlockHeight();
             if (done) return;
             while (currentBlockHeight <= lastValidBlockHeight) {
-              await sleep(1e3);
+              await sleep2(1e3);
               if (done) return;
               currentBlockHeight = await checkBlockHeight();
               if (done) return;
@@ -50980,7 +50980,7 @@ Message: ${transactionMessage}.
                 });
                 return;
               }
-              await sleep(2e3);
+              await sleep2(2e3);
               if (done) return;
               currentNonceValue = await getCurrentNonceValue();
               if (done) return;
@@ -51008,7 +51008,7 @@ Message: ${transactionMessage}.
                 break;
               }
               if (status.context.slot < (outcome.slotInWhichNonceDidAdvance ?? minContextSlot)) {
-                await sleep(400);
+                await sleep2(400);
                 continue;
               }
               signatureStatus = status;
@@ -52080,7 +52080,7 @@ Message: ${transactionMessage}.
       async _blockhashWithExpiryBlockHeight(disableCache) {
         if (!disableCache) {
           while (this._pollingBlockhash) {
-            await sleep(100);
+            await sleep2(100);
           }
           const timeSinceFetch = Date.now() - this._blockhashInfo.lastFetch;
           const expired = timeSinceFetch >= BLOCKHASH_CACHE_TIMEOUT_MS;
@@ -52110,7 +52110,7 @@ Message: ${transactionMessage}.
               };
               return latestBlockhash;
             }
-            await sleep(MS_PER_SLOT / 2);
+            await sleep2(MS_PER_SLOT / 2);
           }
           throw new Error(`Unable to obtain a new blockhash after ${Date.now() - startTime}ms`);
         } finally {
@@ -79362,7 +79362,7 @@ Message: ${transactionMessage}.
       }
       return signature2;
     }
-    function sleep(ms2) {
+    function sleep2(ms2) {
       return new Promise((resolve2) => setTimeout(resolve2, ms2));
     }
     function encodeData(type, fields) {
@@ -80172,7 +80172,7 @@ Message: ${transactionMessage}.
           }));
           if (connection._rpcEndpoint.includes("solana.com")) {
             const REQUESTS_PER_SECOND = 4;
-            await sleep(1e3 / REQUESTS_PER_SECOND);
+            await sleep2(1e3 / REQUESTS_PER_SECOND);
           }
           offset += chunkSize;
           array = array.slice(chunkSize);
@@ -81345,7 +81345,7 @@ Message: ${transactionMessage}.
               break;
             }
             console.error(`Server responded with ${res.status} ${res.statusText}.  Retrying after ${waitTime}ms delay...`);
-            await sleep(waitTime);
+            await sleep2(waitTime);
             waitTime *= 2;
           }
           const text = await res.text();
@@ -82467,7 +82467,7 @@ Message: ${transactionMessage}.
             let currentBlockHeight = await checkBlockHeight();
             if (done) return;
             while (currentBlockHeight <= lastValidBlockHeight) {
-              await sleep(1e3);
+              await sleep2(1e3);
               if (done) return;
               currentBlockHeight = await checkBlockHeight();
               if (done) return;
@@ -82539,7 +82539,7 @@ Message: ${transactionMessage}.
                 });
                 return;
               }
-              await sleep(2e3);
+              await sleep2(2e3);
               if (done) return;
               currentNonceValue = await getCurrentNonceValue();
               if (done) return;
@@ -82567,7 +82567,7 @@ Message: ${transactionMessage}.
                 break;
               }
               if (status.context.slot < (outcome.slotInWhichNonceDidAdvance ?? minContextSlot)) {
-                await sleep(400);
+                await sleep2(400);
                 continue;
               }
               signatureStatus = status;
@@ -83639,7 +83639,7 @@ Message: ${transactionMessage}.
       async _blockhashWithExpiryBlockHeight(disableCache) {
         if (!disableCache) {
           while (this._pollingBlockhash) {
-            await sleep(100);
+            await sleep2(100);
           }
           const timeSinceFetch = Date.now() - this._blockhashInfo.lastFetch;
           const expired = timeSinceFetch >= BLOCKHASH_CACHE_TIMEOUT_MS;
@@ -83669,7 +83669,7 @@ Message: ${transactionMessage}.
               };
               return latestBlockhash;
             }
-            await sleep(MS_PER_SLOT / 2);
+            await sleep2(MS_PER_SLOT / 2);
           }
           throw new Error(`Unable to obtain a new blockhash after ${Date.now() - startTime}ms`);
         } finally {
@@ -86610,7 +86610,28 @@ var subtle = () => globalThis.crypto.subtle;
 async function sha256(data) {
   return new Uint8Array(await subtle().digest("SHA-256", data));
 }
+async function hmacSha256(key2, msg) {
+  const k = await subtle().importKey("raw", key2, { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  return new Uint8Array(await subtle().sign("HMAC", k, msg));
+}
 var hex = (b) => Array.from(b, (x) => x.toString(16).padStart(2, "0")).join("");
+async function mac(serverSeed, clientSeed, nonce, round) {
+  const msg = new Uint8Array(44);
+  msg.set(clientSeed, 0);
+  const dv = new DataView(msg.buffer);
+  dv.setBigUint64(32, nonce, true);
+  dv.setUint32(40, round, true);
+  return hmacSha256(serverSeed, msg);
+}
+async function u32s(serverSeed, clientSeed, nonce, count) {
+  const out = [];
+  for (let round = 0; out.length < count; round++) {
+    const m = await mac(serverSeed, clientSeed, nonce, round);
+    const dv = new DataView(m.buffer, m.byteOffset, m.byteLength);
+    for (let i = 0; i < 8 && out.length < count; i++) out.push(dv.getUint32(i * 4, false));
+  }
+  return out;
+}
 var gameKind = (id) => id === "dice" ? "dice" : id === "flip" ? "flip" : id === "limbo" || id === "crash" ? "limbo" : id === "wheel" ? "wheel" : id === "plinko" ? "plinko" : id === "keno" ? "keno" : id === "roulette" ? "roulette" : id === "hotreels" ? "hotreels" : id === "slots777" ? "slots777" : id === "vaultbreak" ? "vaultbreak" : id === "scratch" ? "scratch" : id === "sicbo" ? "sicbo" : id === "dragon" ? "dragon" : id === "baccarat" ? "baccarat" : null;
 
 // ../../packages/core/src/program.ts
@@ -86846,6 +86867,7 @@ var decodeConfig = (d) => ({
   minBet: u64(d, 140),
   paused: d[148] === 1
 });
+var PLAYER_SIZE = 355;
 function decodePlayer(d) {
   const g = d.slice(161, 177);
   const n = g.indexOf(0);
@@ -86959,8 +86981,333 @@ function explainError(e) {
 }
 
 // ../../packages/core/src/multistep.ts
+var CAP_X100 = 25000n;
 function isMultistepGame(id) {
   return id === "mines" || id === "hilo" || id === "towers" || id === "blackjack" || id === "poker";
+}
+function minesValue(amount, m, k) {
+  const cap = amount * CAP_X100 / 100n;
+  let v = amount * 99n / 100n;
+  const mb = BigInt(m);
+  for (let i = 0; i < k; i++) {
+    const ib = BigInt(i);
+    v = v * (25n - ib) / (25n - mb - ib);
+    if (v >= cap) return { value: cap, capped: true };
+  }
+  return { value: v, capped: false };
+}
+function towersCols(diff) {
+  return diff === 0 ? 4 : diff === 1 ? 3 : 2;
+}
+function towersValue(amount, cols, k) {
+  const cap = amount * CAP_X100 / 100n;
+  let v = amount * 99n / 100n;
+  const cb = BigInt(cols);
+  for (let i = 0; i < k; i++) {
+    v = v * cb / (cb - 1n);
+    if (v >= cap) return { value: cap, capped: true };
+  }
+  return { value: v, capped: false };
+}
+function bjDeck(d) {
+  const a = Array.from({ length: 52 }, (_, i) => i);
+  for (let i = 51; i >= 1; i--) {
+    const j = Number(BigInt(d[51 - i]) * BigInt(i + 1) >> 32n);
+    const tmp = a[i];
+    a[i] = a[j];
+    a[j] = tmp;
+  }
+  return a;
+}
+function bjCardVal(card) {
+  const rank = card % 13;
+  if (rank === 0) return 11;
+  if (rank >= 9) return 10;
+  return rank + 1;
+}
+function bjHandValue(cards) {
+  let sum = 0;
+  let aces = 0;
+  for (const c of cards) {
+    const v = bjCardVal(c);
+    sum += v;
+    if (c % 13 === 0) aces++;
+  }
+  while (sum > 21 && aces > 0) {
+    sum -= 10;
+    aces--;
+  }
+  return sum;
+}
+function pokerEval(hand) {
+  const ranks = hand.map((c) => c % 13);
+  const suits = hand.map((c) => Math.floor(c / 13));
+  const flush = suits.every((s) => s === suits[0]);
+  const sorted = [...ranks].sort((a, b) => a - b);
+  let straight = false;
+  let royal = false;
+  if (sorted[0] === 0 && sorted[1] === 9 && sorted[2] === 10 && sorted[3] === 11 && sorted[4] === 12) {
+    straight = true;
+    royal = true;
+  } else if (sorted[4] - sorted[0] === 4 && new Set(sorted).size === 5) {
+    straight = true;
+  }
+  const counts = new Array(13).fill(0);
+  for (const r of ranks) counts[r]++;
+  const freqs = counts.filter((c) => c > 0).sort((a, b) => b - a);
+  if (royal && flush) return 800;
+  if (straight && flush) return 50;
+  if (freqs[0] === 4) return 25;
+  if (freqs[0] === 3 && freqs[1] === 2) return 9;
+  if (flush) return 6;
+  if (straight) return 4;
+  if (freqs[0] === 3) return 3;
+  if (freqs[0] === 2 && freqs[1] === 2) return 2;
+  if (freqs[0] === 2) {
+    for (let r = 0; r < 13; r++) {
+      if (counts[r] === 2 && (r === 0 || r >= 10)) return 1;
+    }
+  }
+  return 0;
+}
+async function replay(game, params, amount, serverSeed, clientSeed, nonce, actions, actionCount, extraStake = 0n, timeout = false) {
+  if (game === "mines") {
+    const m = params[0];
+    if (m < 1 || m > 24 || params.slice(1).some((b) => b !== 0)) throw new Error("invalid mines params");
+    const safeTotal = 25 - m;
+    const d2 = await u32s(serverSeed, clientSeed, nonce, 25);
+    const a = Array.from({ length: 25 }, (_, i) => i);
+    for (let i = 0; i < m; i++) {
+      const j = i + Number(BigInt(d2[i]) * BigInt(25 - i) >> 32n);
+      const tmp = a[i];
+      a[i] = a[j];
+      a[j] = tmp;
+    }
+    const mines = new Set(a.slice(0, m));
+    const revealed = /* @__PURE__ */ new Set();
+    let safeCount = 0;
+    let finished2 = false;
+    let cashed = false;
+    let payout2 = 0n;
+    for (let idx = 0; idx < actionCount; idx++) {
+      if (finished2) break;
+      const act = actions[idx];
+      if (act === 255) {
+        if (safeCount === 0) continue;
+        payout2 = minesValue(amount, m, safeCount).value;
+        finished2 = true;
+        cashed = true;
+      } else if (act <= 24) {
+        if (revealed.has(act)) continue;
+        revealed.add(act);
+        if (mines.has(act)) {
+          payout2 = 0n;
+          finished2 = true;
+        } else {
+          safeCount++;
+          const { value, capped } = minesValue(amount, m, safeCount);
+          if (capped || safeCount === safeTotal) {
+            payout2 = value;
+            finished2 = true;
+            cashed = true;
+          }
+        }
+      } else {
+        continue;
+      }
+    }
+    if (!finished2 && timeout) {
+      payout2 = safeCount === 0 ? amount : minesValue(amount, m, safeCount).value;
+      finished2 = true;
+      cashed = true;
+    }
+    return { payout: payout2, finished: finished2, cashed, detail: { mines: Array.from(mines), safeCount } };
+  }
+  if (game === "hilo") {
+    if (params.some((b) => b !== 0)) throw new Error("invalid hilo params");
+    const d2 = await u32s(serverSeed, clientSeed, nonce, 40);
+    const ranks = Array.from({ length: 20 }, (_, i) => Number(BigInt(d2[i]) * 13n >> 32n));
+    const suits = Array.from({ length: 20 }, (_, i) => Number(BigInt(d2[20 + i]) * 4n >> 32n));
+    const cap = amount * CAP_X100 / 100n;
+    let value = amount * 99n / 100n;
+    let streak = 0;
+    let finished2 = false;
+    let cashed = false;
+    let payout2 = 0n;
+    for (let idx = 0; idx < actionCount; idx++) {
+      if (finished2) break;
+      const act = actions[idx];
+      if (act === 255) {
+        if (streak === 0) continue;
+        payout2 = value;
+        finished2 = true;
+        cashed = true;
+      } else if (act === 0 || act === 1) {
+        if (streak >= 19) continue;
+        const cur = ranks[streak];
+        const next = ranks[streak + 1];
+        const won = act === 0 ? next >= cur : next <= cur;
+        if (!won) {
+          payout2 = 0n;
+          finished2 = true;
+        } else {
+          const fav = BigInt(act === 0 ? 13 - cur : cur + 1);
+          value = value * 13n / fav;
+          if (value >= cap) {
+            value = cap;
+            payout2 = cap;
+            finished2 = true;
+            cashed = true;
+          } else {
+            streak++;
+            if (streak === 19) {
+              payout2 = value;
+              finished2 = true;
+              cashed = true;
+            }
+          }
+        }
+      } else {
+        continue;
+      }
+    }
+    if (!finished2 && timeout) {
+      payout2 = streak === 0 ? amount : value;
+      finished2 = true;
+      cashed = true;
+    }
+    return { payout: payout2, finished: finished2, cashed, detail: { ranks, suits, streak } };
+  }
+  if (game === "towers") {
+    const diff = params[0];
+    if (diff > 2 || params.slice(1).some((b) => b !== 0)) throw new Error("invalid towers params");
+    const cols = towersCols(diff);
+    const d2 = await u32s(serverSeed, clientSeed, nonce, 8);
+    const bombs = Array.from({ length: 8 }, (_, f) => Number(BigInt(d2[f]) * BigInt(cols) >> 32n));
+    let safeFloors = 0;
+    let finished2 = false;
+    let cashed = false;
+    let payout2 = 0n;
+    for (let idx = 0; idx < actionCount; idx++) {
+      if (finished2) break;
+      const act = actions[idx];
+      if (act === 255) {
+        if (safeFloors === 0) continue;
+        payout2 = towersValue(amount, cols, safeFloors).value;
+        finished2 = true;
+        cashed = true;
+      } else if (act < cols) {
+        if (safeFloors >= 8) continue;
+        if (act === bombs[safeFloors]) {
+          payout2 = 0n;
+          finished2 = true;
+        } else {
+          safeFloors++;
+          const { value, capped } = towersValue(amount, cols, safeFloors);
+          if (capped || safeFloors === 8) {
+            payout2 = value;
+            finished2 = true;
+            cashed = true;
+          }
+        }
+      } else {
+        continue;
+      }
+    }
+    if (!finished2 && timeout) {
+      payout2 = safeFloors === 0 ? amount : towersValue(amount, cols, safeFloors).value;
+      finished2 = true;
+      cashed = true;
+    }
+    return { payout: payout2, finished: finished2, cashed, detail: { bombs, safeFloors } };
+  }
+  if (game === "blackjack") {
+    if (params.some((b) => b !== 0)) throw new Error("invalid blackjack params");
+    const d2 = await u32s(serverSeed, clientSeed, nonce, 52);
+    const deck2 = bjDeck(d2);
+    const playerCards = [deck2[0], deck2[2]];
+    const dealerCards = [deck2[1], deck2[3]];
+    let ptr2 = 4;
+    const pNat = bjHandValue(playerCards) === 21;
+    const dNat = bjHandValue(dealerCards) === 21;
+    if (pNat || dNat) {
+      const basePayout = pNat && dNat ? amount : pNat ? amount * 5n / 2n : 0n;
+      const payout3 = basePayout + extraStake;
+      return { payout: payout3, finished: true, cashed: payout3 > 0n, detail: { playerCards, dealerCards, natural: true } };
+    }
+    const totalStake = amount + extraStake;
+    let doubled = false;
+    let stood = false;
+    let finished2 = false;
+    let payout2 = 0n;
+    for (let idx = 0; idx < actionCount; idx++) {
+      if (finished2) break;
+      const act = actions[idx];
+      if (act === 0) {
+        if (stood) break;
+        playerCards.push(deck2[ptr2++]);
+        const pv = bjHandValue(playerCards);
+        if (pv > 21) {
+          payout2 = 0n;
+          finished2 = true;
+        } else if (pv === 21) {
+          stood = true;
+        }
+      } else if (act === 1) {
+        stood = true;
+      } else if (act === 2) {
+        if (idx !== 0 || doubled || stood) continue;
+        doubled = true;
+        stood = true;
+        playerCards.push(deck2[ptr2++]);
+        if (bjHandValue(playerCards) > 21) {
+          payout2 = 0n;
+          finished2 = true;
+        }
+      } else {
+        continue;
+      }
+    }
+    if (!finished2 && !stood && timeout) stood = true;
+    if (!finished2 && stood) {
+      while (bjHandValue(dealerCards) < 17) dealerCards.push(deck2[ptr2++]);
+      const pv = bjHandValue(playerCards);
+      const dv = bjHandValue(dealerCards);
+      if (dv > 21 || pv > dv) payout2 = totalStake * 2n;
+      else if (pv === dv) payout2 = totalStake;
+      else payout2 = 0n;
+      finished2 = true;
+    }
+    return { payout: payout2, finished: finished2, cashed: payout2 > 0n, detail: { playerCards, dealerCards } };
+  }
+  if (params.some((b) => b !== 0)) throw new Error("invalid poker params");
+  const d = await u32s(serverSeed, clientSeed, nonce, 52);
+  const deck = bjDeck(d);
+  const dealt = deck.slice(0, 5);
+  let mask = 31;
+  let finished = false;
+  let maskOpt = null;
+  for (let i = 0; i < actionCount; i++) {
+    if (actions[i] <= 31) {
+      maskOpt = actions[i];
+      break;
+    }
+  }
+  if (maskOpt !== null) {
+    mask = maskOpt;
+    finished = true;
+  } else if (timeout) {
+    mask = 31;
+    finished = true;
+  }
+  const finalHand = [...dealt];
+  let ptr = 5;
+  for (let i = 0; i < 5; i++) {
+    if ((mask >> i & 1) === 0) finalHand[i] = deck[ptr++];
+  }
+  const mult = pokerEval(finalHand);
+  const payout = finished ? amount * BigInt(mult) : 0n;
+  return { payout, finished, cashed: payout > 0n, detail: { dealt, finalHand, mult } };
 }
 
 // src/index.ts
@@ -87143,6 +87490,286 @@ app.get(["/bets", "/api/bets"], wrap(async (req, res) => {
         out.push({ tx: s.signature, time: s.blockTime, game: e.gameId, amount: e.amount.toString(), payout: e.payout.toString(), nonce: e.nonce.toString(), serverSeed: hex(e.serverSeed), serverSeedHash: hex(e.serverSeedHash), clientSeed: hex(e.clientSeed), params: hex(e.params) });
   }
   res.json({ ok: true, bets: out });
+}));
+var sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+function computeRunningMult(game, params, outcome, amount) {
+  if (outcome.payout > 0n && amount > 0n) {
+    return Number(outcome.payout * 10000n / amount) / 1e4;
+  }
+  if (game === "mines") {
+    const m = BigInt(params[0]);
+    const k = Number(outcome.detail.safeCount ?? 0);
+    if (k === 0) return 1;
+    let v = amount * 99n / 100n;
+    const cap = amount * 25000n / 100n;
+    for (let i = 0; i < k; i++) {
+      const ib = BigInt(i);
+      v = v * (25n - ib) / (25n - m - ib);
+      if (v >= cap) {
+        v = cap;
+        break;
+      }
+    }
+    return Number(v * 10000n / amount) / 1e4;
+  }
+  if (game === "towers") {
+    const diff = params[0];
+    const cols = BigInt(diff === 0 ? 4 : diff === 1 ? 3 : 2);
+    const k = Number(outcome.detail.safeFloors ?? 0);
+    if (k === 0) return 1;
+    let v = amount * 99n / 100n;
+    const cap = amount * 25000n / 100n;
+    for (let i = 0; i < k; i++) {
+      v = v * cols / (cols - 1n);
+      if (v >= cap) {
+        v = cap;
+        break;
+      }
+    }
+    return Number(v * 10000n / amount) / 1e4;
+  }
+  if (game === "hilo") {
+    const streak = Number(outcome.detail.streak ?? 0);
+    if (streak === 0) return 1;
+    const ranks = outcome.detail.ranks ?? [];
+    let v = amount * 99n / 100n;
+    const cap = amount * 25000n / 100n;
+    for (let i = 0; i < streak; i++) {
+    }
+    return 1;
+  }
+  return 1;
+}
+function buildStepView(game, params, amount, actions, actionCount, outcome) {
+  const actSlice = Array.from(actions.slice(0, actionCount));
+  if (game === "mines") {
+    const minesSet = new Set(outcome.detail.mines ?? []);
+    const seen = /* @__PURE__ */ new Set();
+    const revealed = [];
+    let lastAction = null;
+    for (const act of actSlice) {
+      if (act === 255) break;
+      if (act <= 24 && !seen.has(act)) {
+        seen.add(act);
+        const bomb = minesSet.has(act);
+        revealed.push({ cell: act, safe: !bomb });
+        lastAction = { cell: act, safe: !bomb, bomb };
+        if (bomb) break;
+      }
+    }
+    const multiplier = computeRunningMult(game, params, outcome, amount);
+    return { revealed, lastAction, safeCount: outcome.detail.safeCount, multiplier };
+  }
+  if (game === "towers") {
+    const diff = params[0];
+    const cols = diff === 0 ? 4 : diff === 1 ? 3 : 2;
+    const bombs = outcome.detail.bombs ?? [];
+    let floor = 0;
+    let lastFloor = null;
+    for (const act of actSlice) {
+      if (act === 255) break;
+      if (act < cols && floor < 8) {
+        const bomb = bombs[floor] === act;
+        lastFloor = { floor, col: act, safe: !bomb, bomb };
+        if (bomb) break;
+        floor++;
+      }
+    }
+    const multiplier = computeRunningMult(game, params, outcome, amount);
+    return { lastFloor, safeFloors: outcome.detail.safeFloors, multiplier };
+  }
+  if (game === "hilo") {
+    const ranks = outcome.detail.ranks ?? [];
+    const suits = outcome.detail.suits ?? [];
+    const cards = ranks.map((r, i) => ({ r, s: suits[i] }));
+    let v = amount * 99n / 100n;
+    const cap = amount * 25000n / 100n;
+    let streak = 0;
+    let lastGuess = null;
+    for (const act of actSlice) {
+      if (act === 255) break;
+      if (act === 0 || act === 1) {
+        const curRank = ranks[streak];
+        const nextCard = cards[streak + 1];
+        if (curRank === void 0 || !nextCard) break;
+        const win = act === 0 ? nextCard.r >= curRank : nextCard.r <= curRank;
+        lastGuess = { guess: act === 0 ? "hi" : "lo", win, card: nextCard };
+        if (!win) {
+          v = 0n;
+          break;
+        }
+        const winChoices = BigInt(act === 0 ? 13 - curRank : curRank + 1);
+        v = v * 13n / winChoices;
+        if (v >= cap) v = cap;
+        streak++;
+      }
+    }
+    const multiplier = streak === 0 ? 1 : Number(v * 10000n / amount) / 1e4;
+    return {
+      cards,
+      currentCard: cards[cards.length - 1] ?? null,
+      lastGuess,
+      streak: outcome.detail.streak,
+      multiplier
+    };
+  }
+  if (game === "blackjack") {
+    const playerCards = outcome.detail.playerCards ?? [];
+    const dealerCards = outcome.detail.dealerCards ?? [];
+    return {
+      playerCards,
+      dealerUpCard: dealerCards[0] ?? null,
+      dealerCards: outcome.finished ? dealerCards : dealerCards.length > 0 ? [dealerCards[0]] : [],
+      natural: !!outcome.detail.natural
+    };
+  }
+  return {
+    dealt: outcome.detail.dealt ?? [],
+    finalHand: outcome.finished ? outcome.detail.finalHand ?? null : null,
+    mult: outcome.finished ? outcome.detail.mult ?? 0 : null
+  };
+}
+app.post(["/bet/step", "/api/bet/step"], wrap(async (req, res) => {
+  const wallet = pk(req.body?.wallet);
+  if (!wallet) return fail(res, 400, "wallet is required");
+  const expectActions = Number(req.body?.expectActions ?? 0);
+  if (!Number.isInteger(expectActions) || expectActions < 0 || expectActions > 32) {
+    return fail(res, 400, "expectActions must be 0..32");
+  }
+  if (limited("step:" + wallet.toBase58(), 60, 6e4)) return fail(res, 429, "Too many requests, slow down");
+  const playerPda = oh.player(wallet);
+  let plAcc = await conn.getAccountInfo(playerPda, "confirmed");
+  if (!plAcc) return fail(res, 404, "No player account");
+  let p = decodePlayer(plAcc.data);
+  if (!p.open.active) return fail(res, 409, "There is no open bet");
+  if (!isMultistepGame(p.open.gameId)) return fail(res, 400, "Not a multi-step game");
+  if (p.open.actionCount < expectActions) {
+    for (let i = 0; i < 10; i++) {
+      await sleep(1e3);
+      plAcc = await conn.getAccountInfo(playerPda, "confirmed");
+      if (!plAcc) return fail(res, 404, "No player account");
+      p = decodePlayer(plAcc.data);
+      if (!p.open.active) return fail(res, 409, "There is no open bet");
+      if (p.open.actionCount >= expectActions) break;
+    }
+    if (p.open.actionCount < expectActions) return fail(res, 409, "move not confirmed yet");
+  }
+  const o = p.open;
+  const cAcc = await conn.getAccountInfo(oh.commitment(o.serverSeedHash), "confirmed");
+  if (!cAcc) return fail(res, 409, "Seed commitment is missing");
+  const c = decodeCommitment(cAcc.data);
+  const seed = seedFor(c.index);
+  if (hex(sha(seed)) !== hex(o.serverSeedHash)) return fail(res, 500, "Seed derivation mismatch, check SEED_MASTER_SECRET");
+  const outcome = await replay(
+    o.gameId,
+    o.params,
+    o.amount,
+    seed,
+    o.clientSeed,
+    o.nonce,
+    o.actions,
+    o.actionCount,
+    o.extraStake,
+    false
+  );
+  const view2 = buildStepView(o.gameId, o.params, o.amount, o.actions, o.actionCount, outcome);
+  if (outcome.finished) {
+    let sig;
+    let ev = null;
+    try {
+      const ix = await oh.settleBet(secrets.kp.publicKey, wallet, o.serverSeedHash, seed, 0n);
+      const tx = new import_web32.Transaction().add(import_web32.ComputeBudgetProgram.setComputeUnitLimit({ units: 4e5 }), ix);
+      sig = await (0, import_web32.sendAndConfirmTransaction)(conn, tx, [secrets.kp], { commitment: "confirmed" });
+      const t = await conn.getTransaction(sig, { commitment: "confirmed", maxSupportedTransactionVersion: 0 });
+      ev = (await parseSettled(t?.meta?.logMessages ?? []))[0] ?? null;
+    } catch (e) {
+      console.error("step settle failed", e);
+      return fail(res, 502, "Settlement transaction failed");
+    }
+    return res.json({
+      ok: true,
+      game: o.gameId,
+      actionCount: o.actionCount,
+      finished: true,
+      ...view2,
+      settlement: {
+        tx: sig,
+        game: o.gameId,
+        amount: o.amount.toString(),
+        nonce: o.nonce.toString(),
+        payout: ev ? ev.payout.toString() : outcome.payout.toString(),
+        win: ev ? ev.payout > 0n : outcome.payout > 0n,
+        serverSeed: hex(seed),
+        serverSeedHash: hex(o.serverSeedHash),
+        clientSeed: hex(o.clientSeed),
+        params: hex(o.params),
+        verifiedOnChain: ev?.verifiedOnChain ?? true
+      }
+    });
+  }
+  res.json({
+    ok: true,
+    game: o.gameId,
+    actionCount: o.actionCount,
+    finished: false,
+    ...view2
+  });
+}));
+app.all(["/admin/settle-open", "/api/admin/settle-open"], wrap(async (req, res) => {
+  if (req.method !== "GET" && req.method !== "POST") return fail(res, 405, "Method not allowed");
+  if (!isAuthorizedCron(req.headers.authorization)) return fail(res, 401, "Not allowed");
+  const accs = await conn.getProgramAccounts(oh.programId, { filters: [{ dataSize: PLAYER_SIZE }] });
+  const now = Math.floor(Date.now() / 1e3);
+  let scanned = 0, settled = 0, forceSettled = 0, errors = 0;
+  for (const a of accs) {
+    if (settled + forceSettled >= 20) break;
+    scanned++;
+    let p;
+    try {
+      p = decodePlayer(a.account.data);
+    } catch {
+      continue;
+    }
+    const o = p.open;
+    if (!o.active || !isMultistepGame(o.gameId)) continue;
+    try {
+      const cAcc = await conn.getAccountInfo(oh.commitment(o.serverSeedHash), "confirmed");
+      if (!cAcc) continue;
+      const c = decodeCommitment(cAcc.data);
+      const seed = seedFor(c.index);
+      if (hex(sha(seed)) !== hex(o.serverSeedHash)) continue;
+      const outcome = await replay(
+        o.gameId,
+        o.params,
+        o.amount,
+        seed,
+        o.clientSeed,
+        o.nonce,
+        o.actions,
+        o.actionCount,
+        o.extraStake,
+        false
+      );
+      if (outcome.finished) {
+        const ix = await oh.settleBet(secrets.kp.publicKey, p.wallet, o.serverSeedHash, seed, 0n);
+        const tx = new import_web32.Transaction().add(import_web32.ComputeBudgetProgram.setComputeUnitLimit({ units: 4e5 }), ix);
+        await (0, import_web32.sendAndConfirmTransaction)(conn, tx, [secrets.kp], { commitment: "confirmed" });
+        settled++;
+      } else {
+        const refTime = o.actionCount > 0 ? Number(o.lastActionAt) : Number(o.createdAt);
+        if (now >= refTime + 600) {
+          const ix = await oh.forceSettle(secrets.kp.publicKey, secrets.kp.publicKey, p.wallet, o.serverSeedHash, seed);
+          const tx = new import_web32.Transaction().add(import_web32.ComputeBudgetProgram.setComputeUnitLimit({ units: 4e5 }), ix);
+          await (0, import_web32.sendAndConfirmTransaction)(conn, tx, [secrets.kp], { commitment: "confirmed" });
+          forceSettled++;
+        }
+      }
+    } catch (e) {
+      console.error("settle-open error", explainError(e));
+      errors++;
+    }
+  }
+  res.json({ ok: true, scanned, settled, forceSettled, errors });
 }));
 function isAuthorizedCron(authHeader) {
   const given = Buffer.from(String(authHeader ?? ""));

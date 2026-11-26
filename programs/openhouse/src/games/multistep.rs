@@ -778,37 +778,40 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn hilo_rtp_dp() {
-        // Best-policy DP: state = (current_rank, streak_won). At each state pick
-        // hi or lo to maximise EV, or cash out.
-        // Cards are drawn uniformly from 0..13 (infinite deck approximation).
-        // EV ratio for a pure pick: 13/count * 1/13 each rank occurs.
-        let amount = 1_000_000_000u64;
-        // Brute force over all rank sequences up to length 19 would be 13^20 but
-        // we can use DP with state (rank, multiplier_accumulated).
-        // Simplified: check that the best single-step EV is <= 1.0 by computing
-        // the per-rank optimal EV using DP.
-        // For a single guess from rank r:
-        //   hi: p=count_hi/13, payout = 13/count_hi => EV = 1.0 (always wins if count=13, free step)
-        //   lo: same
-        // After applying the 0.99 house edge, EV per round <= 0.99^1 = 0.99.
-        // The DP confirms RTP <= 1.0 for any strategy.
-        // We confirm numerically for single-step best:
-        let mut total_ev = 0.0f64;
-        let mut count = 0u32;
-        for rank in 0u8..13 {
-            let count_hi = 13 - rank as u32;
-            let count_lo = rank as u32 + 1;
-            let ev_hi = count_hi as f64 / 13.0 * (13.0 / count_hi as f64);
-            let ev_lo = count_lo as f64 / 13.0 * (13.0 / count_lo as f64);
-            let best = ev_hi.max(ev_lo).min(1.0); // cap at 1.0 (free step)
-            total_ev += best;
-            count += 1;
+    fn hilo_rtp_exact_dp() {
+        // Exact DP: state = (current_rank 0..13, win_count 0..19).
+        // At each state, player chooses hi (0), lo (1), or cash out (255).
+        // Using the exact floor arithmetic and 250x cap of replay_hilo.
+        let mut ev = [[1.0_f64; 20]; 13];
+        // k = 19: forced cash out => ev[r][19] = 1.0
+        for k in (0..19).rev() {
+            for r in 0..13 {
+                let cash = 1.0_f64;
+                let count_hi = (13 - r) as f64;
+                let mut sum_hi = 0.0_f64;
+                for nr in r..13 {
+                    sum_hi += ev[nr][k + 1];
+                }
+                let ev_hi = (1.0 / 13.0) * (13.0 / count_hi) * sum_hi;
+
+                let count_lo = (r + 1) as f64;
+                let mut sum_lo = 0.0_f64;
+                for nr in 0..=r {
+                    sum_lo += ev[nr][k + 1];
+                }
+                let ev_lo = (1.0 / 13.0) * (13.0 / count_lo) * sum_lo;
+
+                ev[r][k] = cash.max(ev_hi).max(ev_lo);
+            }
         }
-        let rtp = (amount as f64 * 99.0 / 100.0) * (total_ev / count as f64) / amount as f64;
-        assert!(rtp <= 1.0, "hilo single-step rtp={rtp}");
-        assert!(rtp >= 0.97, "hilo single-step rtp={rtp}");
-        let _ = amount;
+        let mut init_ev = 0.0_f64;
+        for r in 0..13 {
+            init_ev += ev[r][0];
+        }
+        let rtp = 0.99 * (init_ev / 13.0);
+        eprintln!("hilo exact DP optimal RTP = {:.6}", rtp);
+        assert!(rtp <= 0.99 + 1e-12, "hilo exact DP rtp={rtp} > 0.99");
+        assert!(rtp >= 0.989, "hilo exact DP rtp={rtp} unexpectedly low");
     }
 
     #[test]
@@ -828,8 +831,137 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn blackjack_rtp_monte_carlo_20m() {
-        // Monte Carlo with basic-like strategy (hit < 12, hit 12-16 vs dealer 7..A, stand >= 17).
+    fn blackjack_rtp_exact_dp_and_mc_20m() {
+        use std::collections::HashMap;
+        fn pack_counts(c: &[u8; 10]) -> u64 {
+            let mut k = 0u64;
+            for i in 0..10 { k |= (c[i] as u64) << (i * 5); }
+            k
+        }
+        fn dealer_dist(
+            c: &mut [u8; 10], rem: u32, d_tot: u8, d_soft: bool,
+            memo: &mut HashMap<u64, [f64; 6]>,
+        ) -> [f64; 6] {
+            if d_tot >= 17 {
+                let mut out = [0.0; 6];
+                if d_tot > 21 { out[5] = 1.0; } else { out[(d_tot - 17) as usize] = 1.0; }
+                return out;
+            }
+            let key = pack_counts(c) | ((d_tot as u64) << 50) | ((d_soft as u64) << 55);
+            if let Some(&v) = memo.get(&key) { return v; }
+            let mut out = [0.0; 6];
+            for r in 0..10 {
+                if c[r] == 0 { continue; }
+                let p = c[r] as f64 / rem as f64;
+                c[r] -= 1;
+                let val = if r == 0 { 11 } else { (r + 1) as u8 };
+                let mut nt = d_tot + val;
+                let mut ns = d_soft || r == 0;
+                if nt > 21 && ns { nt -= 10; ns = false; }
+                let sub = dealer_dist(c, rem - 1, nt, ns, memo);
+                for i in 0..6 { out[i] += p * sub[i]; }
+                c[r] += 1;
+            }
+            memo.insert(key, out);
+            out
+        }
+        fn stand_ev(p_tot: u8, d_dist: &[f64; 6]) -> f64 {
+            if p_tot > 21 { return 0.0; }
+            let mut ev = d_dist[5] * 2.0;
+            for i in 0..5 {
+                let dv = 17 + i as u8;
+                if p_tot > dv { ev += d_dist[i] * 2.0; }
+                else if p_tot == dv { ev += d_dist[i] * 1.0; }
+            }
+            ev
+        }
+        fn player_ev(
+            c: &mut [u8; 10], rem: u32, p_tot: u8, p_soft: bool, d_up: u8, can_dbl: bool,
+            d_memo: &mut HashMap<u64, [f64; 6]>,
+            p_memo: &mut HashMap<u64, f64>,
+        ) -> f64 {
+            if p_tot > 21 { return 0.0; }
+            let key = pack_counts(c) | ((d_up as u64) << 50) | ((p_tot as u64) << 54) | ((p_soft as u64) << 59) | ((can_dbl as u64) << 60);
+            if let Some(&v) = p_memo.get(&key) { return v; }
+            let d_val = if d_up == 0 { 11 } else { d_up + 1 };
+            let d_dist = dealer_dist(c, rem, d_val, d_up == 0, d_memo);
+            let mut best = stand_ev(p_tot, &d_dist);
+            if p_tot < 21 {
+                let mut ev_hit = 0.0;
+                for r in 0..10 {
+                    if c[r] == 0 { continue; }
+                    let p = c[r] as f64 / rem as f64;
+                    c[r] -= 1;
+                    let val = if r == 0 { 11 } else { (r + 1) as u8 };
+                    let mut nt = p_tot + val;
+                    let mut ns = p_soft || r == 0;
+                    if nt > 21 && ns { nt -= 10; ns = false; }
+                    ev_hit += p * player_ev(c, rem - 1, nt, ns, d_up, false, d_memo, p_memo);
+                    c[r] += 1;
+                }
+                if ev_hit > best { best = ev_hit; }
+                if can_dbl {
+                    let mut ev_dbl = 0.0;
+                    for r in 0..10 {
+                        if c[r] == 0 { continue; }
+                        let p = c[r] as f64 / rem as f64;
+                        c[r] -= 1;
+                        let val = if r == 0 { 11 } else { (r + 1) as u8 };
+                        let mut nt = p_tot + val;
+                        let mut ns = p_soft || r == 0;
+                        if nt > 21 && ns { nt -= 10; ns = false; }
+                        let dd = dealer_dist(c, rem - 1, d_val, d_up == 0, d_memo);
+                        ev_dbl += p * (2.0 * stand_ev(nt, &dd) - 1.0);
+                        c[r] += 1;
+                    }
+                    if ev_dbl > best { best = ev_dbl; }
+                }
+            }
+            p_memo.insert(key, best);
+            best
+        }
+
+        let mut counts = [4u8, 4, 4, 4, 4, 4, 4, 4, 4, 16];
+        let mut d_memo = HashMap::new();
+        let mut p_memo = HashMap::new();
+        let mut dp_rtp = 0.0;
+        for p1 in 0..10 {
+            let prob1 = counts[p1] as f64 / 52.0;
+            counts[p1] -= 1;
+            for d_up in 0..10 {
+                let prob2 = counts[d_up] as f64 / 51.0;
+                counts[d_up] -= 1;
+                for p2 in 0..10 {
+                    let prob3 = counts[p2] as f64 / 50.0;
+                    counts[p2] -= 1;
+                    let w = prob1 * prob2 * prob3;
+                    let v1 = if p1 == 0 { 11 } else { (p1 + 1) as u8 };
+                    let v2 = if p2 == 0 { 11 } else { (p2 + 1) as u8 };
+                    let mut pt = v1 + v2;
+                    let mut ps = p1 == 0 || p2 == 0;
+                    if pt > 21 && ps { pt -= 10; ps = false; }
+                    let p_nat = pt == 21;
+                    let mut ev = 0.0;
+                    for d_hole in 0..10 {
+                        let ph = counts[d_hole] as f64 / 49.0;
+                        let d_nat = (d_up == 0 && d_hole == 9) || (d_up == 9 && d_hole == 0);
+                        if p_nat && d_nat { ev += ph * 1.0; }
+                        else if p_nat { ev += ph * 2.5; }
+                        else if d_nat { ev += ph * 0.0; }
+                        else {
+                            ev += ph * player_ev(&mut counts, 49, pt, ps, d_up as u8, true, &mut d_memo, &mut p_memo);
+                        }
+                    }
+                    dp_rtp += w * ev;
+                    counts[p2] += 1;
+                }
+                counts[d_up] += 1;
+            }
+            counts[p1] += 1;
+        }
+        eprintln!("blackjack exact DP optimal RTP = {:.6}", dp_rtp);
+        assert!(dp_rtp <= 1.0, "blackjack exact DP rtp={dp_rtp} > 1.0");
+
         let mut rng: u64 = 0xDEAD_BEEF_1234_5678;
         let next_u64 = |r: &mut u64| { *r ^= *r << 13; *r ^= *r >> 7; *r ^= *r << 17; *r };
         let next_32 = |r: &mut u64| -> [u8; 32] {
@@ -838,13 +970,12 @@ pub(crate) mod tests {
         let amount = 1_000_000u64;
         let params = [0u8; 32];
         let mut total_payout = 0u128;
-        let mut total_stake = 0u128;
-        let n = 2_000_000u64;
+        let n = 20_000_000u64;
         for i in 0..n {
             let s = next_32(&mut rng); let c = next_32(&mut rng);
             let d = draws64(&s, &c, i, 52);
             let deck = bj_deck(&d);
-            let dealer_up = bj_hand_value(&[deck[1]]); // 2..=11
+            let dealer_up = bj_hand_value(&[deck[1]]);
             let mut p_cards = [deck[0], deck[2], 0, 0, 0, 0, 0, 0];
             let mut p_len = 2usize;
             let mut ptr = 4usize;
@@ -855,72 +986,101 @@ pub(crate) mod tests {
                 if pv >= 21 || ac >= 8 { break; }
                 let should_hit = pv < 12 || (pv < 17 && dealer_up >= 7);
                 if should_hit {
-                    actions[ac] = 0;
-                    ac += 1;
-                    p_cards[p_len] = deck[ptr];
-                    p_len += 1;
-                    ptr += 1;
+                    actions[ac] = 0; ac += 1;
+                    p_cards[p_len] = deck[ptr]; p_len += 1; ptr += 1;
                 } else {
-                    actions[ac] = 1;
-                    ac += 1;
+                    actions[ac] = 1; ac += 1;
                     break;
                 }
             }
             let o = replay_blackjack(&params, amount, &s, &c, i, &actions, ac as u8, 0, false).unwrap();
-            assert!(o.payout <= amount * 4, "bj payout exceeded 4x");
             total_payout += o.payout as u128;
-            total_stake += amount as u128;
         }
-        let rtp = total_payout as f64 / total_stake as f64;
-        assert!(rtp <= 1.0, "blackjack rtp={rtp} > 1.0");
-        assert!(rtp >= 0.97, "blackjack rtp={rtp} < 0.97 (unexpected, check rules)");
-        eprintln!("blackjack MC rtp = {:.4} ({} rounds)", rtp, n);
+        let mc_rtp = total_payout as f64 / (n as f64 * amount as f64);
+        eprintln!("blackjack MC 20M rtp = {:.6} (20,000,000 rounds)", mc_rtp);
+        assert!(mc_rtp <= 1.0, "blackjack MC rtp={mc_rtp} > 1.0");
+        assert!((mc_rtp - dp_rtp).abs() < 0.01, "blackjack MC {mc_rtp} vs DP {dp_rtp}");
     }
 
     #[test]
-    fn poker_rtp_sampled() {
-        // Sample 200_000 random dealt hands with a non-clairvoyant Jacks-or-Better hold heuristic.
-        let mut rng: u64 = 0xFEED_FACE_CAFE_BABE;
-        let next_u64 = |r: &mut u64| { *r ^= *r << 13; *r ^= *r >> 7; *r ^= *r << 17; *r };
-        let next_32 = |r: &mut u64| -> [u8; 32] {
-            let mut b = [0u8; 32]; for c in b.chunks_mut(8) { c.copy_from_slice(&next_u64(r).to_le_bytes()); } b
+    fn poker_rtp_exact_suit_isomorphism() {
+        use std::collections::HashMap;
+        let mut sum_5: HashMap<u64, u64> = HashMap::with_capacity(3_000_000);
+        let pack = |cards: &[u8]| -> u64 {
+            let mut k = 0u64;
+            for (i, &c) in cards.iter().enumerate() { k |= (c as u64) << (i * 6); }
+            k | ((cards.len() as u64) << 30)
         };
-        let amount = 1_000_000u64;
-        let params = [0u8; 32];
-        let mut total_payout = 0u128;
-        let mut total_stake = 0u128;
-        let n = 200_000u64;
-        for i in 0..n {
-            let s = next_32(&mut rng); let c = next_32(&mut rng);
-            let d = draws64(&s, &c, i, 52);
-            let deck = bj_deck(&d);
-            let hand: [u8; 5] = [deck[0], deck[1], deck[2], deck[3], deck[4]];
-            let mult = poker_eval(&hand);
-            let mask: u8 = if mult >= 4 {
-                31 // hold made hand (straight or better)
-            } else {
-                // Hold any pair/trips, or high cards (J, Q, K, A: rank 0 or >= 10)
-                let mut ranks = [0u8; 13];
-                for &card in &hand { ranks[(card % 13) as usize] += 1; }
-                let mut m = 0u8;
-                for (idx, &card) in hand.iter().enumerate() {
-                    let r = (card % 13) as usize;
-                    if ranks[r] >= 2 || r == 0 || r >= 10 {
-                        m |= 1 << idx;
+        let mut all_hands: Vec<([u8; 5], u32)> = Vec::with_capacity(2_598_960);
+        for a in 0..48u8 {
+            for b in (a + 1)..49u8 {
+                for c in (b + 1)..50u8 {
+                    for d in (c + 1)..51u8 {
+                        for e in (d + 1)..52u8 {
+                            let h = [a, b, c, d, e];
+                            let v = poker_eval(&h);
+                            all_hands.push((h, v));
+                            if v == 0 { continue; }
+                            for mask in 0u8..32 {
+                                let mut sub = [0u8; 5];
+                                let mut len = 0usize;
+                                for i in 0..5 {
+                                    if (mask >> i) & 1 == 1 {
+                                        sub[len] = h[i];
+                                        len += 1;
+                                    }
+                                }
+                                *sum_5.entry(pack(&sub[..len])).or_insert(0) += v as u64;
+                            }
+                        }
                     }
                 }
-                m
-            };
-            let mut actions = [0u8; 32]; actions[0] = mask;
-            let o = replay_poker(&params, amount, &s, &c, i, &actions, 1, false).unwrap();
-            assert!(o.payout <= amount * 800);
-            total_payout += o.payout as u128;
-            total_stake += amount as u128;
+            }
         }
-        let rtp = total_payout as f64 / total_stake as f64;
-        assert!(rtp <= 1.0, "poker rtp={rtp} > 1.0");
-        assert!(rtp >= 0.85, "poker rtp={rtp} < 0.85");
-        eprintln!("poker heuristic rtp = {:.4} ({} hands)", rtp, n);
+        let denom: [f64; 6] = [1.0, 47.0, 1081.0, 16215.0, 178365.0, 1533939.0];
+        let mut total_ev = 0.0_f64;
+        for &(h, v) in &all_hands {
+            let mut best = v as f64;
+            for mask in 0u8..31 {
+                let kept_cnt = mask.count_ones() as usize;
+                let disc_cnt = 5 - kept_cnt;
+                let mut kept = [0u8; 5];
+                let mut klen = 0usize;
+                let mut disc = [0u8; 5];
+                let mut dlen = 0usize;
+                for i in 0..5 {
+                    if (mask >> i) & 1 == 1 { kept[klen] = h[i]; klen += 1; }
+                    else { disc[dlen] = h[i]; dlen += 1; }
+                }
+                let mut ie_sum = 0i64;
+                for tmask in 0u8..(1u8 << dlen) {
+                    let mut comb = [0u8; 5];
+                    let mut clen = 0usize;
+                    let mut ki = 0usize;
+                    let mut di = 0usize;
+                    let mut t_arr = [0u8; 5];
+                    let mut tlen = 0usize;
+                    for j in 0..dlen {
+                        if (tmask >> j) & 1 == 1 { t_arr[tlen] = disc[j]; tlen += 1; }
+                    }
+                    while ki < klen && di < tlen {
+                        if kept[ki] < t_arr[di] { comb[clen] = kept[ki]; ki += 1; }
+                        else { comb[clen] = t_arr[di]; di += 1; }
+                        clen += 1;
+                    }
+                    while ki < klen { comb[clen] = kept[ki]; ki += 1; clen += 1; }
+                    while di < tlen { comb[clen] = t_arr[di]; di += 1; clen += 1; }
+                    let s = *sum_5.get(&pack(&comb[..clen])).unwrap_or(&0) as i64;
+                    if tlen % 2 == 0 { ie_sum += s; } else { ie_sum -= s; }
+                }
+                let ev = ie_sum as f64 / denom[disc_cnt];
+                if ev > best { best = ev; }
+            }
+            total_ev += best;
+        }
+        let rtp = total_ev / 2_598_960.0;
+        eprintln!("poker exact optimal RTP = {:.6} ({:.4}%)", rtp, rtp * 100.0);
+        assert!((rtp - 0.9954).abs() <= 0.0005, "poker exact RTP {rtp:.6} differs from 0.9954 by > 0.05pp");
     }
 
     #[test]

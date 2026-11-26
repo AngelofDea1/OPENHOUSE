@@ -24,6 +24,9 @@ jobs:
           npm run typecheck
           npm test
           npm run build:browser
+          npm run vendor
+      - name: Vendor bundle and index.html integrity must be up to date
+        run: git diff --exit-code vendor/ index.html
       - name: Settler builds
         working-directory: services/settler
         run: |

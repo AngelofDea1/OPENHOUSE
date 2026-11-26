@@ -1,0 +1,23 @@
+name: Settle Open Bets
+
+on:
+  schedule:
+    - cron: '*/5 * * * *'
+  workflow_dispatch:
+
+jobs:
+  settle-open:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Call settler /api/admin/settle-open
+        env:
+          SETTLER_URL: ${{ secrets.SETTLER_URL }}
+          ADMIN_TOKEN: ${{ secrets.ADMIN_TOKEN }}
+        run: |
+          if [ -z "$SETTLER_URL" ] || [ -z "$ADMIN_TOKEN" ]; then
+            echo "SETTLER_URL or ADMIN_TOKEN not set; skipping."
+            exit 0
+          fi
+          curl -sfS -X POST "${SETTLER_URL%/}/api/admin/settle-open" \
+            -H "Authorization: Bearer ${ADMIN_TOKEN}" \
+            -H "Content-Type: application/json"

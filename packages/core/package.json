@@ -7,7 +7,8 @@
   "scripts": {
     "test": "tsx --test test/*.test.ts",
     "typecheck": "tsc --noEmit",
-    "build:browser": "node build-browser.mjs",
+    "build:browser": "node build-browser.mjs && node vendor.mjs",
+    "vendor": "node build-browser.mjs && node vendor.mjs",
     "init": "tsx scripts/init-cluster.mjs",
     "preflight": "tsx scripts/preflight.mjs",
     "monitor": "tsx scripts/monitor.mjs"

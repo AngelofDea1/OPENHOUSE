@@ -9,6 +9,7 @@ import { Connection, Keypair, PublicKey, Transaction, sendAndConfirmTransaction,
 import {
   OpenHouse, decodeConfig, decodePlayer, decodeCommitment, parseSettled,
   gameKind, isMultistepGame, resolve, winPayout, explainError, hex, fromHex,
+  replay, PLAYER_SIZE,
 } from '../../../packages/core/src/index';
 
 const env = (k: string, d?: string) => process.env[k] ?? d;
@@ -182,6 +183,283 @@ app.get(['/bets', '/api/bets'], wrap(async (req, res) => {
         out.push({ tx: s.signature, time: s.blockTime, game: e.gameId, amount: e.amount.toString(), payout: e.payout.toString(), nonce: e.nonce.toString(), serverSeed: hex(e.serverSeed), serverSeedHash: hex(e.serverSeedHash), clientSeed: hex(e.clientSeed), params: hex(e.params) });
   }
   res.json({ ok: true, bets: out });
+}));
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+function computeRunningMult(game: string, params: Uint8Array, outcome: Awaited<ReturnType<typeof replay>>, amount: bigint): number {
+  if (outcome.payout > 0n && amount > 0n) {
+    return Number((outcome.payout * 10000n) / amount) / 10000;
+  }
+  if (game === 'mines') {
+    const m = BigInt(params[0]);
+    const k = Number(outcome.detail.safeCount ?? 0);
+    if (k === 0) return 1;
+    let v = (amount * 99n) / 100n;
+    const cap = (amount * 25_000n) / 100n;
+    for (let i = 0; i < k; i++) {
+      const ib = BigInt(i);
+      v = (v * (25n - ib)) / (25n - m - ib);
+      if (v >= cap) { v = cap; break; }
+    }
+    return Number((v * 10000n) / amount) / 10000;
+  }
+  if (game === 'towers') {
+    const diff = params[0];
+    const cols = BigInt(diff === 0 ? 4 : diff === 1 ? 3 : 2);
+    const k = Number(outcome.detail.safeFloors ?? 0);
+    if (k === 0) return 1;
+    let v = (amount * 99n) / 100n;
+    const cap = (amount * 25_000n) / 100n;
+    for (let i = 0; i < k; i++) {
+      v = (v * cols) / (cols - 1n);
+      if (v >= cap) { v = cap; break; }
+    }
+    return Number((v * 10000n) / amount) / 10000;
+  }
+  if (game === 'hilo') {
+    const streak = Number(outcome.detail.streak ?? 0);
+    if (streak === 0) return 1;
+    const ranks: number[] = outcome.detail.ranks ?? [];
+    let v = (amount * 99n) / 100n;
+    const cap = (amount * 25_000n) / 100n;
+    for (let i = 0; i < streak; i++) {
+      // Approximate or exact? We can't know hi/lo from ranks alone without actions, so we'll compute in buildStepView!
+      void ranks;
+    }
+    return 1;
+  }
+  return 1;
+}
+
+export function buildStepView(
+  game: string,
+  params: Uint8Array,
+  amount: bigint,
+  actions: Uint8Array,
+  actionCount: number,
+  outcome: Awaited<ReturnType<typeof replay>>,
+): Record<string, any> {
+  const actSlice = Array.from(actions.slice(0, actionCount));
+  if (game === 'mines') {
+    const minesSet = new Set<number>(outcome.detail.mines ?? []);
+    const seen = new Set<number>();
+    const revealed: { cell: number; safe: boolean }[] = [];
+    let lastAction: { cell: number; safe: boolean; bomb: boolean } | null = null;
+    for (const act of actSlice) {
+      if (act === 255) break;
+      if (act <= 24 && !seen.has(act)) {
+        seen.add(act);
+        const bomb = minesSet.has(act);
+        revealed.push({ cell: act, safe: !bomb });
+        lastAction = { cell: act, safe: !bomb, bomb };
+        if (bomb) break;
+      }
+    }
+    const multiplier = computeRunningMult(game, params, outcome, amount);
+    return { revealed, lastAction, safeCount: outcome.detail.safeCount, multiplier };
+  }
+  if (game === 'towers') {
+    const diff = params[0];
+    const cols = diff === 0 ? 4 : diff === 1 ? 3 : 2;
+    const bombs: number[] = outcome.detail.bombs ?? [];
+    let floor = 0;
+    let lastFloor: { floor: number; col: number; safe: boolean; bomb: boolean } | null = null;
+    for (const act of actSlice) {
+      if (act === 255) break;
+      if (act < cols && floor < 8) {
+        const bomb = bombs[floor] === act;
+        lastFloor = { floor, col: act, safe: !bomb, bomb };
+        if (bomb) break;
+        floor++;
+      }
+    }
+    const multiplier = computeRunningMult(game, params, outcome, amount);
+    return { lastFloor, safeFloors: outcome.detail.safeFloors, multiplier };
+  }
+  if (game === 'hilo') {
+    const ranks: number[] = outcome.detail.ranks ?? [];
+    const suits: number[] = outcome.detail.suits ?? [];
+    let v = (amount * 99n) / 100n;
+    const cap = (amount * 25_000n) / 100n;
+    let streak = 0;
+    let shown = 1;
+    let lastGuess: { guess: 'hi' | 'lo'; win: boolean; card: { r: number; s: number } } | null = null;
+    for (const act of actSlice) {
+      if (act === 255) break;
+      if (act === 0 || act === 1) {
+        const curRank = ranks[streak];
+        const nextR = ranks[streak + 1];
+        const nextS = suits[streak + 1];
+        if (curRank === undefined || nextR === undefined) break;
+        const nextCard = { r: nextR, s: nextS };
+        shown = streak + 2;
+        const win = act === 0 ? nextCard.r >= curRank : nextCard.r <= curRank;
+        lastGuess = { guess: act === 0 ? 'hi' : 'lo', win, card: nextCard };
+        if (!win) { v = 0n; break; }
+        const winChoices = BigInt(act === 0 ? 13 - curRank : curRank + 1);
+        v = (v * 13n) / winChoices;
+        if (v >= cap) v = cap;
+        streak++;
+      }
+    }
+    const cards = ranks.slice(0, shown).map((r, i) => ({ r, s: suits[i] }));
+    const multiplier = streak === 0 ? 1 : Number((v * 10000n) / amount) / 10000;
+    return {
+      cards,
+      currentCard: cards[cards.length - 1] ?? null,
+      lastGuess,
+      streak: outcome.detail.streak,
+      multiplier,
+    };
+  }
+  if (game === 'blackjack') {
+    const playerCards: number[] = outcome.detail.playerCards ?? [];
+    const dealerCards: number[] = outcome.detail.dealerCards ?? [];
+    return {
+      playerCards,
+      dealerUpCard: dealerCards[0] ?? null,
+      dealerCards: outcome.finished ? dealerCards : (dealerCards.length > 0 ? [dealerCards[0]] : []),
+      natural: !!outcome.detail.natural,
+    };
+  }
+  // poker
+  return {
+    dealt: outcome.detail.dealt ?? [],
+    finalHand: outcome.finished ? (outcome.detail.finalHand ?? null) : null,
+    mult: outcome.finished ? (outcome.detail.mult ?? 0) : null,
+  };
+}
+
+/** Step endpoint for multi-step games: replays ONLY on-chain logged actions, settles if finished. */
+app.post(['/bet/step', '/api/bet/step'], wrap(async (req, res) => {
+  const wallet = pk(req.body?.wallet);
+  if (!wallet) return fail(res, 400, 'wallet is required');
+  const expectActions = Number(req.body?.expectActions ?? 0);
+  if (!Number.isInteger(expectActions) || expectActions < 0 || expectActions > 32) {
+    return fail(res, 400, 'expectActions must be 0..32');
+  }
+  if (limited('step:' + wallet.toBase58(), 60, 60_000)) return fail(res, 429, 'Too many requests, slow down');
+
+  const playerPda = oh.player(wallet);
+  let plAcc = await conn.getAccountInfo(playerPda, 'confirmed');
+  if (!plAcc) return fail(res, 404, 'No player account');
+  let p = decodePlayer(plAcc.data);
+  if (!p.open.active) return fail(res, 409, 'There is no open bet');
+  if (!isMultistepGame(p.open.gameId)) return fail(res, 400, 'Not a multi-step game');
+
+  if (p.open.actionCount < expectActions) {
+    for (let i = 0; i < 10; i++) {
+      await sleep(1000);
+      plAcc = await conn.getAccountInfo(playerPda, 'confirmed');
+      if (!plAcc) return fail(res, 404, 'No player account');
+      p = decodePlayer(plAcc.data);
+      if (!p.open.active) return fail(res, 409, 'There is no open bet');
+      if (p.open.actionCount >= expectActions) break;
+    }
+    if (p.open.actionCount < expectActions) return fail(res, 409, 'move not confirmed yet');
+  }
+
+  const o = p.open;
+  const cAcc = await conn.getAccountInfo(oh.commitment(o.serverSeedHash), 'confirmed');
+  if (!cAcc) return fail(res, 409, 'Seed commitment is missing');
+  const c = decodeCommitment(cAcc.data);
+  const seed = seedFor(c.index);
+  if (hex(sha(seed)) !== hex(o.serverSeedHash)) return fail(res, 500, 'Seed derivation mismatch, check SEED_MASTER_SECRET');
+
+  const outcome = await replay(
+    o.gameId as any, o.params, o.amount, seed, o.clientSeed, o.nonce,
+    o.actions, o.actionCount, o.extraStake, false,
+  );
+  const view = buildStepView(o.gameId, o.params, o.amount, o.actions, o.actionCount, outcome);
+
+  if (outcome.finished) {
+    let sig: string;
+    let ev: any = null;
+    try {
+      const ix = await oh.settleBet(secrets!.kp.publicKey, wallet, o.serverSeedHash, seed, 0n);
+      const tx = new Transaction().add(ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }), ix);
+      sig = await sendAndConfirmTransaction(conn, tx, [secrets!.kp], { commitment: 'confirmed' });
+      const t = await conn.getTransaction(sig, { commitment: 'confirmed', maxSupportedTransactionVersion: 0 });
+      ev = (await parseSettled(t?.meta?.logMessages ?? []))[0] ?? null;
+    } catch (e) {
+      console.error('step settle failed', e);
+      return fail(res, 502, 'Settlement transaction failed');
+    }
+    return res.json({
+      ok: true,
+      game: o.gameId,
+      actionCount: o.actionCount,
+      finished: true,
+      ...view,
+      settlement: {
+        tx: sig,
+        game: o.gameId,
+        amount: o.amount.toString(),
+        nonce: o.nonce.toString(),
+        payout: ev ? ev.payout.toString() : outcome.payout.toString(),
+        win: ev ? ev.payout > 0n : outcome.payout > 0n,
+        serverSeed: hex(seed),
+        serverSeedHash: hex(o.serverSeedHash),
+        clientSeed: hex(o.clientSeed),
+        params: hex(o.params),
+        verifiedOnChain: ev?.verifiedOnChain ?? true,
+      },
+    });
+  }
+
+  res.json({
+    ok: true,
+    game: o.gameId,
+    actionCount: o.actionCount,
+    finished: false,
+    ...view,
+  });
+}));
+
+/** Automatic settle job for finished or timed-out multi-step bets. */
+app.all(['/admin/settle-open', '/api/admin/settle-open'], wrap(async (req, res) => {
+  if (req.method !== 'GET' && req.method !== 'POST') return fail(res, 405, 'Method not allowed');
+  if (!isAuthorizedCron(req.headers.authorization)) return fail(res, 401, 'Not allowed');
+  const accs = await conn.getProgramAccounts(oh.programId, { filters: [{ dataSize: PLAYER_SIZE }] });
+  const now = Math.floor(Date.now() / 1000);
+  let scanned = 0, settled = 0, forceSettled = 0, errors = 0;
+  for (const a of accs) {
+    if (settled + forceSettled >= 20) break;
+    scanned++;
+    let p; try { p = decodePlayer(a.account.data); } catch { continue; }
+    const o = p.open;
+    if (!o.active || !isMultistepGame(o.gameId)) continue;
+    try {
+      const cAcc = await conn.getAccountInfo(oh.commitment(o.serverSeedHash), 'confirmed');
+      if (!cAcc) continue;
+      const c = decodeCommitment(cAcc.data);
+      const seed = seedFor(c.index);
+      if (hex(sha(seed)) !== hex(o.serverSeedHash)) continue;
+      const outcome = await replay(
+        o.gameId, o.params, o.amount, seed, o.clientSeed, o.nonce,
+        o.actions, o.actionCount, o.extraStake, false,
+      );
+      if (outcome.finished) {
+        const ix = await oh.settleBet(secrets!.kp.publicKey, p.wallet, o.serverSeedHash, seed, 0n);
+        const tx = new Transaction().add(ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }), ix);
+        await sendAndConfirmTransaction(conn, tx, [secrets!.kp], { commitment: 'confirmed' });
+        settled++;
+      } else {
+        const refTime = o.actionCount > 0 ? Number(o.lastActionAt) : Number(o.createdAt);
+        if (now >= refTime + 600) {
+          const ix = await oh.forceSettle(secrets!.kp.publicKey, secrets!.kp.publicKey, p.wallet, o.serverSeedHash, seed);
+          const tx = new Transaction().add(ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }), ix);
+          await sendAndConfirmTransaction(conn, tx, [secrets!.kp], { commitment: 'confirmed' });
+          forceSettled++;
+        }
+      }
+    } catch (e) {
+      console.error('settle-open error', explainError(e));
+      errors++;
+    }
+  }
+  res.json({ ok: true, scanned, settled, forceSettled, errors });
 }));
 
 /** Cron target. Takes back rent from commitments that were used or went stale. Needs ADMIN_TOKEN or CRON_SECRET. */

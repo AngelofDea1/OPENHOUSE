@@ -14,7 +14,7 @@ window.OH_GENESIS={"devnet":"EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG","main
 window.ohExplorer=function(kind,id){var c=(window.OH_CONFIG||{}).cluster||"devnet";return "https://explorer.solana.com/"+kind+"/"+id+(c==="mainnet-beta"?"":"?cluster="+c);};
 </script>
 <script src="/vendor/solana-web3.min.js" integrity="sha384-DjHoHg45N+L5RZPO5p+uK874TyHExfoonwFDUKKpozAERZGg+SY8y+ntxvWd672b" crossorigin="anonymous"></script>
-<script src="/vendor/openhouse-core.js" integrity="sha384-4ft3xeQ1Y7YZsZitW7V9NCJOLYg3wFNIcBG4bwqFu4E+rb4Li3vqyu50ZMDl9AFc" crossorigin="anonymous"></script>
+<script src="/vendor/openhouse-core.js" integrity="sha384-iw/7hNkxuAx2pCpxf7q+SB9g9xNW+AgzNWdhG9lSylu7xW2+nfUbWTfZT894tpnW" crossorigin="anonymous"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700;800&display=swap" rel="stylesheet">
@@ -8460,10 +8460,50 @@ GAME_UI.mines=root=>{
   $$('[data-mval]',root).forEach(b=>b.onclick=()=>{if(g)return;mInput.value=b.dataset.mval;ui()});
   function ui(){
     const k=g?g.k:0,m=g?g.m:+$('#mC').value;
-    $('#mK').textContent=k;$('#mM').textContent=mult(k,m).toFixed(2)+'x';$('#mN').textContent=g&&k<25-m?mult(k+1,m).toFixed(2)+'x':'-';
-    const b=$('#go');b.textContent=g?(k?'Cash out '+(g.a*mult(k,m)).toFixed(4):'Pick a tile'):'Bet';b.disabled=!!g&&!k;
+    const curMult=g&&g.live?(g.mMult||1):mult(k,m);
+    $('#mK').textContent=k;$('#mM').textContent=curMult.toFixed(2)+'x';$('#mN').textContent=g&&!g.live&&k<25-m?mult(k+1,m).toFixed(2)+'x':'-';
+    const b=$('#go');b.textContent=g?(k?'Cash out '+(g.a*curMult).toFixed(4):'Pick a tile'):'Bet';b.disabled=!!g&&!k;
     $('#mC').disabled=!!g;$('#bet').disabled=!!g;
     if(mDec)mDec.disabled=!!g;if(mInc)mInc.disabled=!!g;$$('[data-mval]',root).forEach(x=>x.disabled=!!g);
+  }
+  function showStepError(msg, retryFn){
+    let el=$('#stepErr',root);
+    if(!el){el=document.createElement('div');el.id='stepErr';el.className='step-err';el.style.cssText='margin-top:8px;color:var(--bad);font-size:.9rem;display:flex;gap:8px;align-items:center';$('#go').parentNode.appendChild(el);}
+    el.innerHTML=`<span>${msg}</span><button type="button" class="btn" id="stepRetry" style="padding:4px 10px;font-size:.82rem">Retry</button>`;
+    $('#stepRetry',el).onclick=()=>{el.remove();retryFn();};
+  }
+  async function finishLiveMines(step){
+    const s=step.settlement,payout=Number(s.payout)/1e9,a=g.a,hit=payout<=0;
+    syncBalance(g.wallet);
+    if(window.OHProgram&&window.OHProgram.replay){
+      try{
+        const out=await window.OHProgram.replay('mines',window.OHProgram.fromHex(s.params),BigInt(Math.round(a*1e9)),window.OHProgram.fromHex(s.serverSeed),window.OHProgram.fromHex(s.clientSeed),BigInt(s.nonce),new Uint8Array(32),0);
+        const mines=out.detail.mines||[];
+        cells().forEach((c,idx)=>{c.disabled=true;if(g.rev.has(idx))return;const isM=mines.includes(idx);setTimeout(()=>show(c,isM?'mine':'gem',true),(hit?280:80)+idx*22)});
+      }catch(_){}
+    }
+    if(hit){SND.boom();const G=OHLIB.gsap;G.fromTo('#mG',{x:-9},{x:0,duration:.6,ease:'elastic.out(1,.18)'});G.fromTo('#stage',{'--flash':.5},{'--flash':0,duration:.7})}
+    pay(a,payout,payout>0?(payout/a).toFixed(2)+'x':'mine');
+    g=null;busy=false;ui();
+  }
+  async function liveStepMines(expectCount){
+    try{
+      const step=await window.OH_CHAIN.stepBet(g.wallet,expectCount);
+      g.actions=step.actionCount;
+      g.k=step.safeCount||0;
+      g.mMult=step.multiplier||1;
+      if(step.lastAction){
+        const idx=step.lastAction.cell;
+        g.rev.add(idx);
+        show(cells()[idx],step.lastAction.safe?'gem':'mine');
+        if(step.lastAction.safe)SND.gem(g.k);
+      }
+      if(step.settlement){await finishLiveMines(step);return;}
+      busy=false;ui();
+    }catch(err){
+      busy=false;ui();
+      showStepError(window.OH_CHAIN.explain(err),()=>liveStepMines(expectCount));
+    }
   }
   function end(hit,hitIdx){
     const m=g.m,a=g.a,k=g.k,mines=g.mines,rev=g.rev;
@@ -8481,12 +8521,7 @@ GAME_UI.mines=root=>{
         busy=true;ui();
         try{
           await window.OH_CHAIN.playAction(255);
-          const res=await window.OH_CHAIN.settleOpen(g.wallet);
-          const payout=Number(res.payout)/1e9;
-          syncBalance(g.wallet);
-          pay(g.a,payout,payout>0?(payout/g.a).toFixed(2)+'x':'mine');
-          if(payout<=0)SND.boom();
-          g=null;busy=false;ui();
+          await liveStepMines(g.actions+1);
         }catch(err){toast(window.OH_CHAIN.explain(err));busy=false;ui();}
         return;
       }
@@ -8500,8 +8535,9 @@ GAME_UI.mines=root=>{
       try{
         const seed=await C.nextSeed(st.wallet);
         const placed=await C.placeBet('mines',a,{mines:m},seed.seedHash);
-        g={a,m,live:true,wallet:st.wallet,placed,rev:new Set(),k:0};
-        cells().forEach(c=>{c.className='tile';c.disabled=false;c.querySelector('.bk').innerHTML=''});busy=false;ui();
+        g={a,m,live:true,wallet:st.wallet,placed,rev:new Set(),k:0,actions:0,mMult:1};
+        cells().forEach(c=>{c.className='tile';c.disabled=false;c.querySelector('.bk').innerHTML=''});
+        await liveStepMines(0);
       }catch(err){toast(C.explain(err));busy=false;ui();}
       return;
     }
@@ -8515,15 +8551,7 @@ GAME_UI.mines=root=>{
       busy=true;ui();
       try{
         await window.OH_CHAIN.playAction(i);
-        g.rev.add(i);g.k++;show(c,'gem');SND.gem(g.k);
-        if(g.k===25-g.m){
-          const res=await window.OH_CHAIN.settleOpen(g.wallet);
-          const payout=Number(res.payout)/1e9;
-          syncBalance(g.wallet);
-          pay(g.a,payout,payout>0?(payout/g.a).toFixed(2)+'x':'mine');
-          g=null;
-        }
-        busy=false;ui();
+        await liveStepMines(g.actions+1);
       }catch(err){toast(window.OH_CHAIN.explain(err));busy=false;ui();}
       return;
     }
@@ -8701,14 +8729,43 @@ GAME_UI.hilo=root=>{
     const b=$('#go');b.textContent=g?(g.k?'Cash out '+(g.a*g.m).toFixed(4):'Pick higher or lower'):'Bet';b.disabled=!!g&&!g.k||busy;$('#bet').disabled=!!g;
   };
   function trail(c,ok){const s=document.createElement('span');s.className=ok?'ok':'';s.textContent=cardStr(c);s.style.color=(c.s===1||c.s===2)?'var(--bad)':'var(--tx)';$('#hTrail').appendChild(s);const t=$('#hTrail');while(t.children.length>12)t.firstChild.remove()}
+  async function liveStepHiLo(expectCount){
+    try{
+      const step=await window.OH_CHAIN.stepBet(g.wallet,expectCount);
+      g.actions=step.actionCount;
+      g.k=step.streak||0;
+      g.m=step.multiplier||1;
+      if(step.cards&&step.cards.length){
+        g.cards=step.cards;
+        hand.innerHTML='';
+        addCard(hand,step.currentCard,false);
+        if(step.lastGuess){
+          const prev=step.cards[step.cards.length-2];
+          if(prev)trail(prev,step.lastGuess.win);
+          if(step.lastGuess.win)SND.gem(g.k);else SND.lose();
+        }
+      }
+      if(step.settlement){
+        const s=step.settlement,payout=Number(s.payout)/1e9,a=g.a;
+        syncBalance(g.wallet);
+        g=null;busy=false;pay(a,payout,payout>0?(payout/a).toFixed(2)+'x':'bust');ui();$('#bet').disabled=false;
+        return;
+      }
+      busy=false;ui();
+    }catch(err){
+      busy=false;ui();
+      let el=$('#stepErr',root);
+      if(!el){el=document.createElement('div');el.id='stepErr';el.className='step-err';el.style.cssText='margin-top:8px;color:var(--bad);font-size:.9rem;display:flex;gap:8px;align-items:center';$('#go').parentNode.appendChild(el);}
+      el.innerHTML=`<span>${window.OH_CHAIN.explain(err)}</span><button type="button" class="btn" id="stepRetry" style="padding:4px 10px;font-size:.82rem">Retry</button>`;
+      $('#stepRetry',el).onclick=()=>{el.remove();liveStepHiLo(expectCount);};
+    }
+  }
   async function guess(hi){
     if(!g||busy)return;busy=true;ui();SND.click();
     if(g.live){
       try{
         await window.OH_CHAIN.playAction(hi?0:1);
-        g.k++;SND.gem(g.k);
-        if(g.k>=19){await cash();return}
-        busy=false;ui();
+        await liveStepHiLo(g.actions+1);
       }catch(err){toast(window.OH_CHAIN.explain(err));busy=false;ui();}
       return;
     }
@@ -8724,11 +8781,8 @@ GAME_UI.hilo=root=>{
     if(g&&g.live){
       busy=true;ui();
       try{
-        if(g.k<19)await window.OH_CHAIN.playAction(255);
-        const res=await window.OH_CHAIN.settleOpen(g.wallet);
-        const payout=Number(res.payout)/1e9,a=g.a;
-        syncBalance(g.wallet);
-        g=null;busy=false;pay(a,payout,payout>0?(payout/a).toFixed(2)+'x':'bust');ui();$('#bet').disabled=false;
+        await window.OH_CHAIN.playAction(255);
+        await liveStepHiLo(g.actions+1);
       }catch(err){toast(window.OH_CHAIN.explain(err));busy=false;ui();}
       return;
     }
@@ -8744,8 +8798,9 @@ GAME_UI.hilo=root=>{
       try{
         const seed=await C.nextSeed(st.wallet);
         const placed=await C.placeBet('hilo',a,{},seed.seedHash);
-        g={a,k:0,m:1,live:true,wallet:st.wallet,placed,cards:Array.from({length:20},()=>({r:6,s:0}))};
-        hand.innerHTML='';$('#hTrail').innerHTML='';addCard(hand,g.cards[0],true);busy=false;ui();
+        g={a,k:0,m:1,actions:0,live:true,wallet:st.wallet,placed,cards:[{r:6,s:0}]};
+        hand.innerHTML='';$('#hTrail').innerHTML='';
+        await liveStepHiLo(0);
       }catch(err){toast(C.explain(err));busy=false;ui();}
       return;
     }
@@ -8776,6 +8831,44 @@ GAME_UI.towers=root=>{
   function reveal(){ /* show every bomb */
     $$('#tw .twr').forEach(r=>{const fl=+r.dataset.r;$$('.twt',r).forEach(b=>{b.disabled=true;if(b.classList.contains('done'))return;const bomb=g.bombs[fl]===+b.dataset.c;b.innerHTML=bomb?BOMB:GEM;b.classList.add('shown',bomb?'bomb':'gem','dim')})})}
   function end(hit){const a=g.a,m=g.m;reveal();if(hit){SND.boom();OHLIB.gsap.fromTo('#tw',{x:-8},{x:0,duration:.55,ease:'elastic.out(1,.2)'});pay(a,0,'tower')}else pay(a,r8(a*m),m.toFixed(2)+'x');g=null;busy=false;ui();$('#bet').disabled=false}
+  async function liveStepTowers(expectCount){
+    try{
+      const step=await window.OH_CHAIN.stepBet(g.wallet,expectCount);
+      g.actions=step.actionCount;
+      g.k=step.safeFloors||0;
+      g.m=step.multiplier||1;
+      if(step.lastFloor){
+        const r=$$('#tw .twr').find(x=>+x.dataset.r===step.lastFloor.floor);
+        const b=r&&$$('.twt',r).find(x=>+x.dataset.c===step.lastFloor.col);
+        if(b){
+          b.classList.add('done','shown',step.lastFloor.safe?'gem':'bomb');
+          b.innerHTML=step.lastFloor.safe?GEM:BOMB;
+        }
+        if(step.lastFloor.safe)SND.gem(g.k);
+      }
+      if(step.settlement){
+        const s=step.settlement,payout=Number(s.payout)/1e9,a=g.a,hit=payout<=0;
+        syncBalance(g.wallet);
+        if(window.OHProgram&&window.OHProgram.replay){
+          try{
+            const out=await window.OHProgram.replay('towers',window.OHProgram.fromHex(s.params),BigInt(Math.round(a*1e9)),window.OHProgram.fromHex(s.serverSeed),window.OHProgram.fromHex(s.clientSeed),BigInt(s.nonce),new Uint8Array(32),0);
+            g.bombs=out.detail.bombs||[];
+            reveal();
+          }catch(_){}
+        }
+        if(hit)SND.boom();
+        g=null;busy=false;pay(a,payout,payout>0?(payout/a).toFixed(2)+'x':'tower');ui();$('#bet').disabled=false;
+        return;
+      }
+      busy=false;ui();
+    }catch(err){
+      busy=false;ui();
+      let el=$('#stepErr',root);
+      if(!el){el=document.createElement('div');el.id='stepErr';el.className='step-err';el.style.cssText='margin-top:8px;color:var(--bad);font-size:.9rem;display:flex;gap:8px;align-items:center';$('#go').parentNode.appendChild(el);}
+      el.innerHTML=`<span>${window.OH_CHAIN.explain(err)}</span><button type="button" class="btn" id="stepRetry" style="padding:4px 10px;font-size:.82rem">Retry</button>`;
+      $('#stepRetry',el).onclick=()=>{el.remove();liveStepTowers(expectCount);};
+    }
+  }
   seg('#tLv',v=>{lv=v;paint()});
   $('#go').onclick=async()=>{
     if(busy)return;
@@ -8785,10 +8878,7 @@ GAME_UI.towers=root=>{
         busy=true;ui();
         try{
           await window.OH_CHAIN.playAction(255);
-          const res=await window.OH_CHAIN.settleOpen(g.wallet);
-          const payout=Number(res.payout)/1e9,a=g.a;
-          syncBalance(g.wallet);
-          g=null;busy=false;pay(a,payout,payout>0?(payout/a).toFixed(2)+'x':'tower');ui();$('#bet').disabled=false;
+          await liveStepTowers(g.actions+1);
         }catch(err){toast(window.OH_CHAIN.explain(err));busy=false;ui();}
         return;
       }
@@ -8802,7 +8892,8 @@ GAME_UI.towers=root=>{
       try{
         const seed=await C.nextSeed(st.wallet);
         const placed=await C.placeBet('towers',a,{difficulty:lv==='easy'?0:lv==='medium'?1:2},seed.seedHash);
-        g={a,k:0,m:1,c,live:true,wallet:st.wallet,placed};paint();busy=false;ui();
+        g={a,k:0,m:1,c,actions:0,live:true,wallet:st.wallet,placed};paint();
+        await liveStepTowers(0);
       }catch(err){toast(C.explain(err));busy=false;ui();}
       return;
     }
@@ -8815,14 +8906,7 @@ GAME_UI.towers=root=>{
       busy=true;ui();
       try{
         await window.OH_CHAIN.playAction(c);
-        b.classList.add('done','shown','gem');b.innerHTML=GEM;g.k++;g.m=twMult(g.c,g.k);SND.gem(g.k);
-        if(g.k===TW_FLOORS){
-          const res=await window.OH_CHAIN.settleOpen(g.wallet);
-          const payout=Number(res.payout)/1e9,a=g.a;
-          syncBalance(g.wallet);
-          g=null;pay(a,payout,payout>0?(payout/a).toFixed(2)+'x':'tower');
-        }
-        busy=false;ui();$('#bet').disabled=!!g;
+        await liveStepTowers(g.actions+1);
       }catch(err){toast(window.OH_CHAIN.explain(err));busy=false;ui();}
       return;
     }
@@ -8938,7 +9022,7 @@ GAME_UI.roulette=root=>{
   init(root,gameById('roulette'),
    `<div class="rl"><div class="rlw"><svg viewBox="0 0 400 400" role="img" aria-label="Roulette wheel"><circle cx="200" cy="200" r="196" fill="#241b13" stroke="#D2BC86" stroke-width="3"/><circle cx="200" cy="200" r="182" fill="#17110c"/><circle cx="200" cy="200" r="170" fill="none" stroke="#3a2d20" stroke-width="2"/><g id="rW">${wheel}<circle cx="200" cy="200" r="114" fill="#0d1612" stroke="#D2BC86" stroke-opacity=".5"/><circle cx="200" cy="200" r="70" fill="#55645d" stroke="#D2BC86" stroke-width="2"/><circle cx="200" cy="200" r="52" fill="#33413b"/><rect x="190" y="128" width="20" height="144" rx="6" fill="#D2BC86"/><rect x="128" y="190" width="144" height="20" rx="6" fill="#D2BC86"/><circle cx="200" cy="200" r="14" fill="#EDEBE4"/></g><circle id="rBall" r="7.5" cx="200" cy="32" fill="#F3EFE4" stroke="#8a8f89" stroke-width="1"/></svg><div class="rres" id="rRes"><span class="rn" id="rN">-</span></div></div><div class="rtw"><div class="rt" id="rT">${tbl}</div></div></div>`,
    `<div class="field"><label>Chip</label><div class="seg" id="rChip"><button type="button" data-v="0.001" aria-pressed="false">0.001</button><button type="button" data-v="0.005" aria-pressed="true">0.005</button><button type="button" data-v="0.01" aria-pressed="false">0.01</button><button type="button" data-v="0.05" aria-pressed="false">0.05</button></div></div>
-   <div class="field"><label>Total bet</label><div class="rtot"><b id="rTot">0.0000</b> SOL<span class="mu"> · max ${MAX_BET}</span></div></div>
+   <div class="field"><label>Total bet</label><div class="rtot"><b id="rTot">0.0000</b> SOL<span class="mu"> · max ${MAX_BET}</span></div><div class="betmeta" id="maxBetHint" style="font-size:.82rem;color:var(--mu);margin-top:4px"></div></div>
    <div class="two" style="grid-column:1/-1"><button class="btn" id="rUndo" type="button">Undo</button><button class="btn" id="rClr" type="button">Clear</button></div>
    <button class="btn hot play" id="go" type="button">Spin</button>`,'gs rouge');
   const G=OHLIB.gsap;G.set('#rW',{svgOrigin:cx+' '+cy});
@@ -9075,7 +9159,36 @@ GAME_UI.blackjack=root=>{
    betHTML()+`<div class="three" style="grid-column:1/-1"><button class="btn" id="bHit" type="button" disabled>Hit</button><button class="btn" id="bStand" type="button" disabled>Stand</button><button class="btn" id="bDbl" type="button" disabled>Double</button></div>
    <button class="btn hot play" id="go" type="button">Deal</button>`,'gs');
   const setTot=()=>{if(!g)return;$('#bP').innerHTML=totEl(bjVal(g.p)+(bjSoft(g.p)&&bjVal(g.p)<21?' soft':''));$('#bD').innerHTML=g.hide?totEl(bjCard(g.d[0])===11?'11':bjVal([g.d[0]])):totEl(bjVal(g.d))};
-  const btns=(on)=>{if(dead)return;const a=on&&!busy;$('#bHit').disabled=!a;$('#bStand').disabled=!a;$('#bDbl').disabled=!(a&&g&&g.p.length===2&&st.bal>=g.a-1e-9);$('#go').disabled=!!g||busy;$('#bet').disabled=!!g};
+  const btns=(on)=>{if(dead)return;const a=on&&!busy;$('#bHit').disabled=!a;$('#bStand').disabled=!a;$('#bDbl').disabled=!(a&&g&&g.p.length===2&&(!g.live||g.actions===0)&&st.bal>=g.a-1e-9);$('#go').disabled=!!g||busy;$('#bet').disabled=!!g};
+  const idxToCard=(idx)=>({r:idx%13,s:Math.floor(idx/13)});
+  async function liveStepBJ(expectCount){
+    try{
+      const step=await window.OH_CHAIN.stepBet(g.wallet,expectCount);
+      g.actions=step.actionCount;
+      g.p=(step.playerCards||[]).map(idxToCard);
+      g.d=(step.dealerCards||[]).map(idxToCard);
+      g.hide=!step.finished;
+      $('#pH').innerHTML='';g.p.forEach(c=>addCard($('#pH'),c,false));
+      $('#dH').innerHTML='';g.d.forEach(c=>addCard($('#dH'),c,false));
+      if(g.hide)addCard($('#dH'),{r:0,s:0},true);
+      setTot();
+      if(step.settlement){
+        const s=step.settlement,payout=Number(s.payout)/1e9,a=g.a;
+        syncBalance(g.wallet);
+        Q('#bMsg').innerHTML=payout>a?`<span class="win">You win ${(payout/a).toFixed(2)}x</span>`:payout===a?'Push':`<span class="bad">House takes it</span>`;
+        pay(a,payout,payout>a?(payout/a).toFixed(2)+'x':payout===a?'push':'0.00x');
+        g=null;busy=false;btns(false);Q('#bet').disabled=false;
+        return;
+      }
+      busy=false;btns(true);
+    }catch(err){
+      busy=false;btns(true);
+      let el=$('#stepErr',root);
+      if(!el){el=document.createElement('div');el.id='stepErr';el.className='step-err';el.style.cssText='margin-top:8px;color:var(--bad);font-size:.9rem;display:flex;gap:8px;align-items:center';$('#go').parentNode.appendChild(el);}
+      el.innerHTML=`<span>${window.OH_CHAIN.explain(err)}</span><button type="button" class="btn" id="stepRetry" style="padding:4px 10px;font-size:.82rem">Retry</button>`;
+      $('#stepRetry',el).onclick=()=>{el.remove();liveStepBJ(expectCount);};
+    }
+  }
   const draw=()=>g.deck[g.i++];
   async function finish(){ /* dealer plays and settle */
     busy=true;btns(false);g.hide=false;const hole=$('#dH .pc:last-child');hole&&hole.classList.remove('down');SND.tick(2);setTot();await wait(520);
@@ -9114,7 +9227,7 @@ GAME_UI.blackjack=root=>{
     if(!g||busy)return;
     if(g.live){
       busy=true;btns(false);SND.click();
-      try{await window.OH_CHAIN.playAction(0);g.hits++;busy=false;btns(true);}catch(err){toast(window.OH_CHAIN.explain(err));busy=false;btns(true);}
+      try{await window.OH_CHAIN.playAction(0);await liveStepBJ(g.actions+1);}catch(err){toast(window.OH_CHAIN.explain(err));busy=false;btns(true);}
       return;
     }
     busy=true;btns(false);const c=draw();g.p.push(c);addCard($('#pH'),c,false);SND.click();setTot();await wait(420);if(dead)return;busy=false;
@@ -9125,7 +9238,7 @@ GAME_UI.blackjack=root=>{
     if(!g||busy)return;
     if(g.live){
       busy=true;btns(false);SND.click();
-      try{await window.OH_CHAIN.playAction(1);await liveSettle();}catch(err){toast(window.OH_CHAIN.explain(err));busy=false;btns(true);}
+      try{await window.OH_CHAIN.playAction(1);await liveStepBJ(g.actions+1);}catch(err){toast(window.OH_CHAIN.explain(err));busy=false;btns(true);}
       return;
     }
     finish();
@@ -9134,7 +9247,7 @@ GAME_UI.blackjack=root=>{
     if(!g||busy)return;
     if(g.live){
       busy=true;btns(false);SND.click();
-      try{await window.OH_CHAIN.playAction(2);await liveSettle();}catch(err){toast(window.OH_CHAIN.explain(err));busy=false;btns(true);}
+      try{await window.OH_CHAIN.playAction(2);await liveStepBJ(g.actions+1);}catch(err){toast(window.OH_CHAIN.explain(err));busy=false;btns(true);}
       return;
     }
     if(g.p.length!==2)return;if(!take(g.a)){return}g.a=r8(g.a*2);busy=true;btns(false);
@@ -9149,9 +9262,9 @@ GAME_UI.blackjack=root=>{
       try{
         const seed=await C.nextSeed(st.wallet);
         const placed=await C.placeBet('blackjack',a,{},seed.seedHash);
-        g={a,live:true,wallet:st.wallet,placed,hits:0,p:[{r:0,s:0},{r:0,s:1}],d:[{r:0,s:2}]};
-        $('#pH').innerHTML='';$('#dH').innerHTML='';$('#bP').innerHTML='';$('#bD').innerHTML='';Q('#bMsg').textContent='Your move (Hit, Stand, or Double)';
-        busy=false;btns(true);
+        g={a,live:true,wallet:st.wallet,placed,actions:0,p:[],d:[],hide:true};
+        $('#pH').innerHTML='';$('#dH').innerHTML='';$('#bP').innerHTML='';$('#bD').innerHTML='';Q('#bMsg').textContent='Dealing...';
+        await liveStepBJ(0);
       }catch(err){toast(C.explain(err));busy=false;$('#go').disabled=false;$('#bet').disabled=false;}
       return;
     }
@@ -9231,13 +9344,27 @@ GAME_UI.poker=root=>{
       if(isLive('poker')&&!st.practice){
         const C=window.OH_CHAIN;
         if(!st.wallet||!C||!C.getProvider()){toast('Connect a wallet to play for real');busy=false;$('#go').disabled=false;$('#bet').disabled=false;return}
+        const liveDeal=async()=>{
+          try{
+            const step=await C.stepBet(st.wallet,0);
+            const dealt=(step.dealt||[]).map(idx=>({r:idx%13,s:Math.floor(idx/13)}));
+            const host=$('#pHand');host.innerHTML='';
+            for(let i=0;i<5;i++){const w=cardAt(i,dealt[i]||{r:0,s:0},false);w.disabled=false;host.appendChild(w);}
+            g={a,live:true,wallet:st.wallet,placed:g&&g.placed,phase:'hold'};
+            Q('#pMsg').textContent='Tap cards to hold, then draw';$('#go').textContent='Draw';$('#go').disabled=false;busy=false;
+          }catch(err){
+            busy=false;$('#go').disabled=false;
+            let el=$('#stepErr',root);
+            if(!el){el=document.createElement('div');el.id='stepErr';el.className='step-err';el.style.cssText='margin-top:8px;color:var(--bad);font-size:.9rem;display:flex;gap:8px;align-items:center';$('#go').parentNode.appendChild(el);}
+            el.innerHTML=`<span>${C.explain(err)}</span><button type="button" class="btn" id="stepRetry" style="padding:4px 10px;font-size:.82rem">Retry</button>`;
+            $('#stepRetry',el).onclick=()=>{el.remove();liveDeal();};
+          }
+        };
         try{
           const seed=await C.nextSeed(st.wallet);
           const placed=await C.placeBet('poker',a,{},seed.seedHash);
-          g={a,live:true,wallet:st.wallet,placed,phase:'hold'};
-          const host=$('#pHand');host.innerHTML='';
-          for(let i=0;i<5;i++){const w=cardAt(i,{r:0,s:0},true);w.disabled=false;host.appendChild(w);}
-          Q('#pMsg').textContent='Tap cards to hold, then draw';$('#go').textContent='Draw';$('#go').disabled=false;busy=false;
+          g={a,live:true,wallet:st.wallet,placed,phase:'deal'};
+          await liveDeal();
         }catch(err){toast(C.explain(err));busy=false;$('#go').disabled=false;$('#bet').disabled=false;}
         return;
       }
@@ -9250,13 +9377,27 @@ GAME_UI.poker=root=>{
     if(g.live){
       const hs=hold();let mask=0;
       hs.forEach((b,i)=>{b.disabled=true;if(b.getAttribute('aria-pressed')==='true')mask|=(1<<i);});
+      const liveDraw=async()=>{
+        try{
+          const step=await window.OH_CHAIN.stepBet(g.wallet,1);
+          const fin=(step.finalHand||[]).map(idx=>({r:idx%13,s:Math.floor(idx/13)}));
+          const host=$('#pHand');host.innerHTML='';
+          for(let i=0;i<5;i++){const w=cardAt(i,fin[i]||{r:0,s:0},false);w.disabled=true;host.appendChild(w);}
+          const s=step.settlement,payout=Number(s.payout)/1e9,a=g.a,m=a>0?payout/a:0;
+          syncBalance(g.wallet);
+          Q('#pMsg').innerHTML=payout>0?`<span class="win">Win</span> pays ${m.toFixed(2)}x`:'<span class="bad">-</span>';
+          pay(a,payout,m?m.toFixed(2)+'x':'0x');g=null;busy=false;Q('#go').textContent='Deal';Q('#go').disabled=false;Q('#bet').disabled=false;
+        }catch(err){
+          busy=false;$('#go').disabled=false;
+          let el=$('#stepErr',root);
+          if(!el){el=document.createElement('div');el.id='stepErr';el.className='step-err';el.style.cssText='margin-top:8px;color:var(--bad);font-size:.9rem;display:flex;gap:8px;align-items:center';$('#go').parentNode.appendChild(el);}
+          el.innerHTML=`<span>${window.OH_CHAIN.explain(err)}</span><button type="button" class="btn" id="stepRetry" style="padding:4px 10px;font-size:.82rem">Retry</button>`;
+          $('#stepRetry',el).onclick=()=>{el.remove();liveDraw();};
+        }
+      };
       try{
         await window.OH_CHAIN.playAction(mask);
-        const res=await window.OH_CHAIN.settleOpen(g.wallet);
-        const payout=Number(res.payout)/1e9,a=g.a,m=a>0?payout/a:0;
-        syncBalance(g.wallet);
-        Q('#pMsg').innerHTML=payout>0?`<span class="win">Win</span> pays ${m.toFixed(2)}x`:'<span class="bad">-</span>';
-        pay(a,payout,m?m.toFixed(2)+'x':'0x');g=null;busy=false;Q('#go').textContent='Deal';Q('#go').disabled=false;Q('#bet').disabled=false;
+        await liveDraw();
       }catch(err){toast(window.OH_CHAIN.explain(err));g.phase='hold';hold().forEach(b=>b.disabled=false);busy=false;$('#go').disabled=false;}
       return;
     }
@@ -9614,6 +9755,7 @@ window.OH_CHAIN = (function() {
   });
   const nextSeed = (wallet) => settler('/seed/next', { wallet });
   const settleOpen = (wallet) => settler('/bet/settle', { wallet });
+  const stepBet = (wallet, expectActions) => settler('/bet/step', { wallet, expectActions });
   const forceSettle = (wallet) => settler('/bet/force-settle', { wallet });
 
   /** If a bet is left open (closed tab, settler down), settle it, or refund once the timeout has passed. */
@@ -9640,7 +9782,7 @@ window.OH_CHAIN = (function() {
   }
 
   return { PROGRAM_ID, VAULT_PDA, RPC_URL, SETTLER_URL, getProvider, fetchPlayerBalance, fetchVaultBalance, fetchVaultState, fetchMyShare, fetchPlayer,
-    depositPlayer, withdrawPlayer, depositVault, withdrawVault, placeBet, playAction, nextSeed, settleOpen, forceSettle, recoverOpenBet, setDailyLossLimit, selfExclude, history, explain: (e) => (window.OHProgram ? window.OHProgram.explainError(e) : String(e && e.message || e)) };
+    depositPlayer, withdrawPlayer, depositVault, withdrawVault, placeBet, playAction, nextSeed, settleOpen, stepBet, forceSettle, recoverOpenBet, setDailyLossLimit, selfExclude, history, explain: (e) => (window.OHProgram ? window.OHProgram.explainError(e) : String(e && e.message || e)) };
 })();
 
 /* ---------- cashier (live devnet transactions enabled) ---------- */
