@@ -7404,7 +7404,7 @@ function initVaultAccountView() {
       const vObj = { totalDeposited: BigInt(Math.round(vs.total * 1e9)), reserved: BigInt(Math.round(vs.reserved * 1e9)) };
       const cObj = { kBps: vs.kBps || 100, paused: !!vs.paused };
       const rows = LIVE_GAME_DEFAULTS.map(([id, name, getParams]) => {
-        let multX100 = 200, mb = 0;
+        let multX100 = null, mb = null;
         if (E) {
           try {
             const kind = E.gameKind(id);
@@ -7412,11 +7412,11 @@ function initVaultAccountView() {
               const pr = getParams();
               const mp = E.winPayout(kind, pr, basis);
               multX100 = Number(mp * 100n / basis);
-              mb = typeof maxBetLamports === 'function' ? Number(maxBetLamports(vObj, cObj, multX100)) / 1e9 : 0;
+              mb = typeof maxBetLamports === 'function' ? Number(maxBetLamports(vObj, cObj, multX100)) / 1e9 : null;
             }
-          } catch(_) {}
+          } catch(_) { multX100 = null; mb = null; }
         }
-        return `<tr><td>${name}</td><td class="r">${(multX100/100).toFixed(2)}x</td><td class="r">${mb.toFixed(4)} SOL</td><td class="r">theoretical — see Fair page</td></tr>`;
+        return `<tr><td>${name}</td><td class="r">${multX100 != null ? (multX100/100).toFixed(2)+'x' : 'n/a'}</td><td class="r">${mb != null ? mb.toFixed(4)+' SOL' : 'n/a'}</td><td class="r">theoretical — see Fair page</td></tr>`;
       }).join('');
       dash.innerHTML = `<h2>On-Chain Vault Dashboard</h2>
         <p class="note">Total deposited: <b>${fmtNumber(vs.total,4)} SOL</b> · Reserved: <b>${fmtNumber(vs.reserved,4)} SOL</b> · Free: <b>${fmtNumber(vs.free,4)} SOL</b> · Accrued fees: <b>${fmtNumber(vs.fees,4)} SOL</b> · Net result: <b>${netPnlStr}</b> · Share price: <b>${spStr}</b></p>
@@ -7698,6 +7698,8 @@ function route(){
   const vw=$('.view.on');document.title=vw.dataset.title;
   $$('[data-nav]').forEach(a=>a.dataset.nav===NAVMAP[view]?a.setAttribute('aria-current','page'):a.removeAttribute('aria-current'));
   setSheet(false);setDD(false);
+  window._lastEncodedParams = null;
+  window._lastEncodedGame = null;
   st.curGame=view==='play'?gid:null;
   {const wantPractice=view==='play'&&!isLive(gid)&&!st.wallet;
    if(wantPractice&&!st.practice){st.practice=true;st.bal=st.pbal;setBal()}
@@ -8065,17 +8067,40 @@ async function refreshMaxBet(force){
   if(vs.paused){if(info)info.textContent='Vault is paused';if(btn){btn.disabled=true;btn.title='Vault is paused';}return;}
   if(!(vs.free>0)){if(info)info.textContent='Vault has no free liquidity';if(btn){btn.disabled=true;btn.title='Vault has no free liquidity';}return;}
   const E=window.OHProgram;
-  let multX100=200;
+  let multX100=null;
   if(E&&st.curGame&&isLive(st.curGame)){
     try{
       const kind=E.gameKind(st.curGame);
       if(kind){
-        const pr=window._lastEncodedParams||new Uint8Array(32);
-        const basis=1_000_000n;
-        const mp=E.winPayout(kind,pr,basis);
-        multX100=Number(mp*100n/basis);
+        let pr=(window._lastEncodedGame===st.curGame&&window._lastEncodedParams)?window._lastEncodedParams:null;
+        if(!pr){
+          const g=st.curGame;
+          if(g==='dice')pr=E.encodeDice(true,4950);
+          else if(g==='flip')pr=E.encodeFlip(false);
+          else if(g==='limbo')pr=E.encodeLimbo(200);
+          else if(g==='wheel')pr=E.encodeWheel(1);
+          else if(g==='plinko')pr=E.encodePlinko(12,1);
+          else if(g==='hotreels'||g==='slots777'||g==='vaultbreak')pr=E.encodeSlots();
+          else if(g==='scratch')pr=E.encodeScratch();
+          else if(g==='sicbo')pr=E.encodeSicBo(1);
+          else if(g==='dragon')pr=E.encodeDragon(0);
+          else if(g==='baccarat')pr=E.encodeBaccarat(0);
+        }
+        if(pr){
+          const basis=1_000_000n;
+          const mp=E.winPayout(kind,pr,basis);
+          multX100=Number(mp*100n/basis);
+        }
       }
-    }catch(_){}
+    }catch(_){multX100=null;}
+  }
+  if(multX100==null){
+    if(info)info.textContent='Max bet right now: choose your settings';
+    if(btn){
+      if(window._excludedUntil&&window._excludedUntil>Date.now()){const dt=new Date(window._excludedUntil).toLocaleDateString();btn.disabled=true;btn.textContent='Self-excluded until '+dt;btn.title='Self-excluded until '+dt;return;}
+      btn.disabled=false;btn.title='';
+    }
+    return;
   }
   const mbLam=maxBetLamports({totalDeposited:BigInt(Math.round(vs.total*1e9)),reserved:BigInt(Math.round(vs.reserved*1e9))},{kBps:vs.kBps,paused:vs.paused},multX100);
   const mbSol=Number(mbLam)/1e9;
@@ -8358,7 +8383,8 @@ GAME_UI.flip=root=>{
    <button class="btn hot play" id="go" type="button">Flip</button>`,'fx');
   OHLIB.coin3d($('#gl')).then(d=>{if(dead){d&&d.dispose();return}c3=d;if(!d)$('#gl').hidden=true});
   const pp=()=>$('#fP').textContent=(getBet()*1.98||0).toFixed(4);
-  seg('#fSide',v=>side=v);$('#bet').oninput=pp;$$('.betrow button').forEach(b=>b.addEventListener('click',pp));pp();
+  if(window.encodeGameParams)window.encodeGameParams('flip',{pick:side==='H'?'heads':'tails'});
+  seg('#fSide',v=>{side=v;if(window.encodeGameParams)window.encodeGameParams('flip',{pick:side==='H'?'heads':'tails'});});$('#bet').oninput=pp;$$('.betrow button').forEach(b=>b.addEventListener('click',pp));pp();
   $('#go').onclick=async()=>{
     if(busy)return;const a=getBet();if(!take(a))return;busy=true;
     const d=await settleBet('flip',a,{pick:side==='H'?'heads':'tails'});
@@ -8391,7 +8417,8 @@ GAME_UI.limbo=root=>{
   const G=OHLIB.gsap,needle=$('#gNeedle');G.set(needle,{rotation:-90,svgOrigin:CX+' '+CY});
   const tg=()=>Math.min(1000,Math.max(1.01,parseFloat($('#lT').value)||2));
   function calc(){const t=tg(),d=deg(t);$('#lC').textContent=(99/t).toFixed(4)+'%';$('#lTT').textContent=t.toFixed(2)+'x';$('#lP').textContent=(getBet()*t||0).toFixed(4);
-    $('#gBad').setAttribute('d',arc(-90,d,R));$('#gOk').setAttribute('d',arc(d,90,R))}
+    $('#gBad').setAttribute('d',arc(-90,d,R));$('#gOk').setAttribute('d',arc(d,90,R));
+    if(window.encodeGameParams)window.encodeGameParams('limbo',{target:t});}
   $('#lT').oninput=calc;$('#bet').oninput=calc;$$('.betrow button').forEach(b=>b.addEventListener('click',calc));calc();
   $('#go').onclick=async()=>{
     if(busy)return;const a=getBet(),t=tg();if(!take(a))return;busy=true;
@@ -8705,7 +8732,7 @@ GAME_UI.keno=root=>{
     const n=sel.size,box=$('#kPay');if(!n){box.innerHTML='<span class="mu">Pick up to 10 numbers</span>';return}
     const t=kenoTable(n);box.innerHTML=t.map((m,h)=>m>0?`<span class="${hit===h?'on':''}"><i>${h}</i>${m.toFixed(2)}x</span>`:'').join('');
   }
-  function ui(){const b=$('#go');b.disabled=busy||sel.size<1;b.textContent=sel.size?'Draw ten numbers':'Pick 1 to 10 numbers';tiles().forEach(t=>t.setAttribute('aria-pressed',String(sel.has(+t.dataset.n))));pays()}
+  function ui(){const b=$('#go');b.disabled=busy||sel.size<1;b.textContent=sel.size?'Draw ten numbers':'Pick 1 to 10 numbers';tiles().forEach(t=>t.setAttribute('aria-pressed',String(sel.has(+t.dataset.n))));pays();if(sel.size>0&&window.encodeGameParams)window.encodeGameParams('keno',{picks:[...sel]});else if(!sel.size){window._lastEncodedParams=null;window._lastEncodedGame='keno';if(typeof refreshMaxBet==='function')refreshMaxBet(false);}}
   $('#kG').onclick=e=>{const t=e.target.closest('.kt');if(!t||busy)return;const n=+t.dataset.n;
     tiles().forEach(x=>x.classList.remove('drawn','hit'));
     if(sel.has(n))sel.delete(n);else if(sel.size<10)sel.add(n);else{toast('Ten numbers is the limit');return}SND.click();ui()};
@@ -8797,7 +8824,7 @@ GAME_UI.roulette=root=>{
    <button class="btn hot play" id="go" type="button">Spin</button>`,'gs rouge');
   const G=OHLIB.gsap;G.set('#rW',{svgOrigin:cx+' '+cy});
   const total=()=>[...bets.values()].reduce((a,b)=>a+b,0);
-  function paint(){$$('#rT .rc').forEach(b=>{const v=bets.get(b.dataset.k),i=b.querySelector('.cb');i.hidden=!v;if(v)i.textContent=+v.toFixed(3)});$('#rTot').textContent=total().toFixed(4)}
+  function paint(){$$('#rT .rc').forEach(b=>{const v=bets.get(b.dataset.k),i=b.querySelector('.cb');i.hidden=!v;if(v)i.textContent=+v.toFixed(3)});$('#rTot').textContent=total().toFixed(4);const ents=[...bets.entries()].map(([k,v])=>({slot:rouSlot(k),units:Math.round(v/0.001)})).filter(e=>e.units>0);if(ents.length&&window.encodeGameParams)window.encodeGameParams('roulette',{entries:ents});else if(!ents.length){window._lastEncodedParams=null;window._lastEncodedGame='roulette';if(typeof refreshMaxBet==='function')refreshMaxBet(false);}}
   seg('#rChip',v=>chip=+v);
   $('#rT').onclick=e=>{const b=e.target.closest('.rc');if(!b||busy)return;$$('#rT .rc').forEach(x=>x.classList.remove('win'));const k=b.dataset.k;
     if(!bets.has(k)&&bets.size>=10){toast('Roulette allows up to 10 different bets per spin');return}
@@ -8878,6 +8905,7 @@ function slotGame(id){
     const stripHTML=i=>{const cells=c.strips[i].map(s=>`<div class="rcell">${symEl(c.sym[s])}</div>`).join('');return cells+cells};
     init(root,gameById(id),`<div class="slot"><div class="cab"><div class="marq" aria-hidden="true">${"<i></i>".repeat(14)}</div><div class="reels">${[0,1,2].map(i=>`<div class="reel" data-i="${i}"><div class="rstrip">${stripHTML(i)}</div></div>`).join('')}<div class="lnmark" aria-hidden="true"></div></div><div class="marq b" aria-hidden="true">${"<i></i>".repeat(14)}</div></div><div class="bignum sm" id="sBig">-</div></div>`,
      betHTML()+`<button class="btn hot play" id="go" type="button">Spin</button>`,'gs');
+    if(window.encodeGameParams)window.encodeGameParams(id,{});
     const hp=$('.how .fairin p');hp&&(hp.innerHTML+=` ${c.lines}. RTP ${(rtp*100).toFixed(2)}%, calculated from the reel strips, so the edge is ${(100-rtp*100).toFixed(2)}%.`);
     const grail=root.querySelector('.grail');
     if(grail&&c.table&&!grail.querySelector('.paytable-card')){
@@ -8998,7 +9026,8 @@ GAME_UI.baccarat=root=>{
   init(root,gameById('baccarat'),`<div class="bjt"><div class="seat"><div class="seatl">Player <span id="cP"></span></div><div class="hand" id="pH"></div></div><div class="seat"><div class="seatl">Banker <span id="cB"></span></div><div class="hand" id="bH"></div></div><div class="stagehint" id="cMsg" style="margin:0">Back a side and deal</div></div>`,
    betHTML()+`<div class="field"><label>Your bet</label><div class="seg" id="cSide"><button type="button" data-v="P" aria-pressed="true">Player 1:1</button><button type="button" data-v="B" aria-pressed="false">Banker 0.95:1</button><button type="button" data-v="T" aria-pressed="false">Tie 8:1</button></div></div>
    <button class="btn hot play" id="go" type="button">Deal</button>`,'gs');
-  seg('#cSide',v=>side=v);
+  if(window.encodeGameParams)window.encodeGameParams('baccarat',{bet:0});
+  seg('#cSide',v=>{side=v;if(window.encodeGameParams)window.encodeGameParams('baccarat',{bet:side==='P'?0:side==='B'?1:2});});
   $('#go').onclick=async()=>{
     if(busy)return;const a=getBet();if(!take(a))return;busy=true;$('#go').disabled=true;
     const betIdx=side==='P'?0:side==='B'?1:2;
@@ -9058,7 +9087,8 @@ GAME_UI.dragon=root=>{
   init(root,gameById('dragon'),`<div class="bjt dtw"><div class="seat"><div class="seatl">Dragon</div><div class="hand" id="dH"></div></div><div class="seat"><div class="seatl">Tiger</div><div class="hand" id="tH"></div></div><div class="stagehint" id="dMsg" style="margin:0">Back a side and deal</div></div>`,
    betHTML()+`<div class="field"><label>Your bet</label><div class="seg" id="dSide"><button type="button" data-v="D" aria-pressed="true">Dragon 2.14x</button><button type="button" data-v="T" aria-pressed="false">Tiger 2.14x</button><button type="button" data-v="X" aria-pressed="false">Tie 12.8x</button></div></div>
    <button class="btn hot play" id="go" type="button">Deal</button>`,'gs');
-  seg('#dSide',v=>side=v);
+  if(window.encodeGameParams)window.encodeGameParams('dragon',{bet:0});
+  seg('#dSide',v=>{side=v;if(window.encodeGameParams)window.encodeGameParams('dragon',{bet:side==='D'?0:side==='T'?1:2});});
   $('#go').onclick=async()=>{
     if(busy)return;const a=getBet();if(!take(a))return;busy=true;$('#go').disabled=true;
     const betIdx=side==='D'?0:side==='T'?1:2;
@@ -9126,6 +9156,7 @@ GAME_UI.scratch=root=>{
   let g=null,busy=false,dead=false,done=true,cv=null;
   init(root,gameById('scratch'),`<div class="scw"><div class="scard" id="scC"><div class="sgrid" id="sG"></div><canvas id="scF" aria-hidden="true"></canvas></div><div class="stagehint" id="scM" style="margin:0">Match three of a kind to win</div></div>`,
    betHTML()+`<div class="two" style="grid-column:1/-1"><button class="btn hot play" id="go" type="button">Buy card</button><button class="btn" id="scR" type="button" disabled>Reveal all</button></div>`,'gs');
+  if(window.encodeGameParams)window.encodeGameParams('scratch',{});
   const grid=$('#sG');
   const fill=()=>{grid.innerHTML=Array.from({length:9},(_,i)=>`<div class="scell">${g?symEl(SC_SYM[g.cells[i]]):''}</div>`).join('')};
   const paint=()=>{
