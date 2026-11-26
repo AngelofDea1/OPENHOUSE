@@ -1,0 +1,36 @@
+name: Solvency Monitor
+
+on:
+  schedule:
+    - cron: '*/15 * * * *'
+  workflow_dispatch:
+
+jobs:
+  monitor:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Check secrets
+        id: check
+        env:
+          RPC_URL: ${{ secrets.RPC_URL }}
+          PROGRAM_ID: ${{ secrets.PROGRAM_ID }}
+        run: |
+          if [ -z "$RPC_URL" ] || [ -z "$PROGRAM_ID" ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "Secrets RPC_URL or PROGRAM_ID not set; skipping monitor."
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Install and run monitor
+        if: steps.check.outputs.skip != 'true'
+        working-directory: packages/core
+        env:
+          RPC_URL: ${{ secrets.RPC_URL }}
+          PROGRAM_ID: ${{ secrets.PROGRAM_ID }}
+          SETTLER_URL: ${{ secrets.SETTLER_URL }}
+          WEBHOOK_URL: ${{ secrets.WEBHOOK_URL }}
+        run: npm ci && npm run monitor

@@ -2144,7 +2144,7 @@ input[type=number] {
       </div>
       <div class="tbl"><table><thead><tr><th>Time</th><th>Game</th><th class="r">Bet</th><th class="r">Multiplier</th><th class="r">Payout</th><th>Nonce</th><th></th></tr></thead><tbody id="bets_tb"></tbody></table></div>
       <div class="row-grid"><button class="btn" id="bets_mo" type="button">Load more</button><button class="btn" id="bets_cv" type="button">Export Audit JSON</button></div>
-      <p class="note">Real-time provably fair wagers settled across the OpenHouse protocol.</p>
+      <p class="note">On-chain wagers settled across the OpenHouse protocol for live games.</p>
     </div>
   </div></div>
 </section>
@@ -2374,7 +2374,7 @@ const diceRoll = Math.floor(floatVal * 10000) / 100.0;</code></pre>
           <div style="display:grid;gap:12px">
             <details style="border:1px solid var(--line);border-radius:var(--rs);padding:14px 16px">
               <summary style="font-weight:600;cursor:pointer;color:var(--tx);list-style:none;display:flex;justify-content:space-between;align-items:center">What is OpenHouse? <span style="color:var(--em)">+</span></summary>
-              <p style="margin-top:12px;color:var(--mu);font-size:.9375rem;line-height:1.65">OpenHouse is a provably fair, non-custodial casino built on Solana Devnet. Every bet is paid from a public vault that anyone can inspect, and every result can be verified against cryptographic seeds.</p>
+              <p style="margin-top:12px;color:var(--mu);font-size:.9375rem;line-height:1.65">OpenHouse is a non-custodial casino built on Solana. Games marked Live are verified on chain and paid from a public vault that anyone can inspect; other games are practice-only demos.</p>
             </details>
             <details style="border:1px solid var(--line);border-radius:var(--rs);padding:14px 16px">
               <summary style="font-weight:600;cursor:pointer;color:var(--tx);list-style:none;display:flex;justify-content:space-between;align-items:center">How do I start playing? <span style="color:var(--em)">+</span></summary>
@@ -2536,7 +2536,7 @@ const diceRoll = Math.floor(floatVal * 10000) / 100.0;</code></pre>
     <div class="wm-top-grid">
       <div class="wm-brand-col">
         <a class="brand" href="#home"><i></i><b>Open<span>House</span></b></a>
-        <p class="wm-blurb">The non-custodial, provably fair casino and public liquidity bankroll vault on Solana.</p>
+        <p class="wm-blurb">Non-custodial on-chain games and public liquidity bankroll vault on Solana.</p>
         <div class="wm-newsletter">
           <label for="wm_email">Protocol updates & dividends</label>
           <div class="wm-news-form">
@@ -7287,7 +7287,7 @@ function initBetsView() {
               const mult = amt > 0 ? +(pay / amt).toFixed(2) : Number(b.multiplier || 0);
               const ts = b.time ? Number(b.time) * 1000 : (b.createdAt ? new Date(b.createdAt).getTime() : Date.now());
               const gName = b.game ? (b.game.charAt(0).toUpperCase() + b.game.slice(1)) : 'Game';
-              ALL_BETS.push({ t: ts, g: gName, bet: amt, m: mult, pay, n: nonce, settleTx: b.tx || '' });
+              ALL_BETS.push({ t: ts, g: gName, gameId: (b.game || '').toLowerCase(), bet: amt, m: mult, pay, n: nonce, placeTx: b.placeTx || '', settleTx: b.settleTx || b.tx || '', serverSeed: b.serverSeed || '', clientSeed: b.clientSeed || '' });
             }
           });
           ALL_BETS.sort((a, b) => b.t - a.t);
@@ -7298,10 +7298,10 @@ function initBetsView() {
     } catch(e) {}
     const R = getFilteredRows();
     if (!more) shown = 0;
-    const nx = R.slice(shown, shown + 15);
+    const nx = R.slice(shown, shown + 25);
     if (!more && tb) tb.innerHTML = '';
     if (nx.length === 0 && shown === 0 && tb) {
-      tb.innerHTML = '<tr><td colspan="7" class="dn" style="text-align:center;padding:24px">No bets recorded yet — play a game to see live bet history</td></tr>';
+      tb.innerHTML = '<tr><td colspan="7" class="dn" style="text-align:center;padding:24px">No bets yet. Place a bet to see your history here.</td></tr>';
     }
     nx.forEach(x => {
       const tr = document.createElement('tr');
@@ -7309,7 +7309,16 @@ function initBetsView() {
         x.placeTx ? `<a href="${window.ohExplorer('tx', x.placeTx)}" target="_blank" rel="noopener">Bet transaction</a>` : '',
         x.settleTx ? `<a href="${window.ohExplorer('tx', x.settleTx)}" target="_blank" rel="noopener">Settlement transaction</a>` : '',
       ].filter(Boolean).join(' · ');
-      tr.innerHTML = `<td>${new Date(x.t).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</td><td>${x.g}</td><td class="r">${fmtNumber(x.bet)}</td><td class="r ${x.m ? 'up' : 'dn'}">${x.m ? x.m + 'x' : '0x'}</td><td class="r ${x.m ? 'up' : 'dn'}">${fmtNumber(x.pay)}</td><td class="mono">${x.n}</td><td class="r">${txLinks ? txLinks + ' · ' : ''}<a href="#fair" data-n="${x.n}">Verify</a></td>`;
+      tr.innerHTML = `<td>${new Date(x.t).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</td><td>${x.g}</td><td class="r">${fmtNumber(x.bet)}</td><td class="r ${x.m ? 'up' : 'dn'}">${x.m ? x.m + 'x' : '0x'}</td><td class="r ${x.m ? 'up' : 'dn'}">${fmtNumber(x.pay)}</td><td class="mono">${x.n}</td><td class="r">${txLinks ? txLinks + ' · ' : ''}<button type="button" class="btn sm verify-btn" data-n="${x.n}">Verify</button></td>`;
+      const vb = tr.querySelector('.verify-btn');
+      if (vb) vb.onclick = () => {
+        if ($('#vServer') && x.serverSeed) $('#vServer').value = x.serverSeed;
+        if ($('#vClient') && x.clientSeed) $('#vClient').value = x.clientSeed;
+        if ($('#vNonce')) $('#vNonce').value = String(x.n ?? '');
+        if ($('#vGame') && x.gameId) $('#vGame').value = x.gameId;
+        location.hash = '#fair';
+        setTimeout(() => { if ($('#vGo')) $('#vGo').click(); }, 50);
+      };
       tb.appendChild(tr);
     });
     shown += nx.length;
@@ -7325,8 +7334,8 @@ function initBetsView() {
       const payload = {
         exportedAt: new Date().toISOString(),
         network: 'solana-' + ((window.OH_CONFIG && window.OH_CONFIG.cluster) || 'devnet'),
-        programId: window.OH_CHAIN ? window.OH_CHAIN.PROGRAM_ID : 'Ehd64oouV9Avs6HkkkyNcw74x8WBggLHRx8EBrXnAq91',
-        vaultPda: window.OH_CHAIN ? window.OH_CHAIN.VAULT_PDA : '3VQpKHhZaVHwiEQmsc1MxPFPQb9wt2WAsokM96SzgJdm',
+        programId: (window.OH_CHAIN && window.OH_CHAIN.PROGRAM_ID) || (window.OH_CONFIG && window.OH_CONFIG.programId) || '',
+        vaultPda: (window.OH_CHAIN && window.OH_CHAIN.VAULT_PDA) || '',
         wallet: st.wallet || null,
         count: R.length,
         bets: R.map(x => ({ timestamp: new Date(x.t).toISOString(), game: x.g, wagerSol: x.bet, multiplier: x.m, payoutSol: x.pay, nonce: x.n })),
@@ -7447,7 +7456,18 @@ function initLimitsView() {
   if ($('#lim_sc')) $('#lim_sc').value = L.sc || 0;
   if (st.wallet && window.OH_CHAIN && window.OH_CHAIN.fetchPlayer) {
     window.OH_CHAIN.fetchPlayer(st.wallet).then(p => {
-      if (p && p.dailyLossLimit > 0 && $('#lim_ll')) $('#lim_ll').value = p.dailyLossLimit;
+      if (!p) return;
+      if (p.dailyLossLimit > 0 && $('#lim_ll')) $('#lim_ll').value = p.dailyLossLimit;
+      const stEl = $('#lim_chain_status') || (() => { const d = document.createElement('div'); d.id = 'lim_chain_status'; d.className = 'note'; d.style.marginTop = '8px'; if ($('#lim_sv') && $('#lim_sv').parentElement) $('#lim_sv').parentElement.appendChild(d); return d; })();
+      const parts = ['On-chain daily loss limit: ' + (p.dailyLossLimit > 0 ? p.dailyLossLimit + ' SOL' : 'None')];
+      if (p.pendingLimitAt > 0) parts.push('Pending limit: ' + p.pendingLimit + ' SOL (applies ' + new Date(p.pendingLimitAt * 1000).toLocaleString() + ', 24h delay)');
+      if (p.excludedUntil * 1000 > Date.now()) {
+        const dt = new Date(p.excludedUntil * 1000).toLocaleString();
+        parts.push('Self-excluded until ' + dt);
+        window._excludedUntil = p.excludedUntil * 1000;
+      }
+      parts.push('Tightening applies immediately; raising or removing waits 24 hours.');
+      stEl.textContent = parts.join(' · ');
     }).catch(() => {});
   }
   function saveLim() {
@@ -7463,11 +7483,11 @@ function initLimitsView() {
   if (sv) sv.onclick = async () => {
     const o = saveLim();
     const ll = Number(o.ll || 0);
-    if (ll > 0 && st.wallet && window.OH_CHAIN && window.OH_CHAIN.getProvider()) {
+    if (ll >= 0 && st.wallet && window.OH_CHAIN && window.OH_CHAIN.getProvider()) {
       try {
         toast('Approve your daily loss limit in your wallet');
         await window.OH_CHAIN.setDailyLossLimit(ll);
-        toast('Daily loss limit saved');
+        toast('Daily loss limit saved on chain');
         return;
       } catch (e) { toast(e.message || 'Could not update limit'); return; }
     }
@@ -7959,9 +7979,57 @@ async function practiceBet(game, amount, params = {}) {
 const GAME_UI={};
 const r8=x=>Math.floor(x*1e8)/1e8;
 const gameById=id=>GAMES.find(g=>g.id===id);
-const betHTML=()=>`<div class="field"><label for="bet">Bet (SOL)</label><div class="betrow"><input id="bet" type="number" inputmode="decimal" min="0.001" max="${MAX_BET}" step="0.001" value="0.005"><button type="button" data-m="0.5" aria-label="Half">½</button><button type="button" data-m="2" aria-label="Double">2×</button><button type="button" data-m="max">MAX</button></div></div>`;
+function maxBetLamports(vault,cfg,maxPayoutX100){
+  if(!vault||!cfg||cfg.paused)return 0n;
+  const total=BigInt(vault.totalDeposited??0),reserved=BigInt(vault.reserved??0);
+  const free=total>reserved?total-reserved:0n;
+  if(free<=0n)return 0n;
+  const kBps=BigInt(cfg.kBps??0);
+  const maxRisk=(free*kBps)/10000n;
+  const multX100=BigInt(Math.round(Number(maxPayoutX100)||0));
+  const riskX100=multX100>100n?multX100-100n:0n;
+  if(riskX100<=0n)return maxRisk;
+  return (maxRisk*100n)/riskX100;
+}
+window.maxBetLamports=maxBetLamports;
+let _vaultCache=null,_vaultCacheAt=0;
+async function refreshMaxBet(force){
+  const info=$('#maxBetInfo'),btn=$('#go');
+  if(!st.curGame||st.practice||!isLive(st.curGame)){if(info)info.textContent='';return;}
+  if(window.OH_CHAIN&&window.OH_CHAIN.fetchVaultState&&(force||!_vaultCache||Date.now()-_vaultCacheAt>30000)){
+    _vaultCache=await window.OH_CHAIN.fetchVaultState().catch(()=>null);
+    _vaultCacheAt=Date.now();
+  }
+  const vs=_vaultCache;
+  if(!vs){if(info)info.textContent='Max bet right now: unavailable';return;}
+  if(vs.paused){if(info)info.textContent='Vault is paused';if(btn){btn.disabled=true;btn.title='Vault is paused';}return;}
+  if(!(vs.free>0)){if(info)info.textContent='Vault has no free liquidity';if(btn){btn.disabled=true;btn.title='Vault has no free liquidity';}return;}
+  const multX100=200;
+  const mbLam=maxBetLamports({totalDeposited:BigInt(Math.round(vs.total*1e9)),reserved:BigInt(Math.round(vs.reserved*1e9))},{kBps:vs.kBps,paused:vs.paused},multX100);
+  const mbSol=Number(mbLam)/1e9;
+  window._curMaxBetSol=mbSol;
+  if(info)info.textContent='Max bet right now: '+mbSol.toFixed(4)+' SOL';
+  const cur=getBet();
+  if(btn){
+    if(window._excludedUntil&&window._excludedUntil>Date.now()){const dt=new Date(window._excludedUntil).toLocaleDateString();btn.disabled=true;btn.textContent='Self-excluded until '+dt;btn.title='Self-excluded until '+dt;return;}
+    if(cur>mbSol+1e-9){btn.disabled=true;btn.title='Exceeds max bet ('+mbSol.toFixed(4)+' SOL)';}
+    else{btn.disabled=false;btn.title='';}
+  }
+}
+setInterval(()=>{if(st.curGame&&!st.practice&&isLive(st.curGame))refreshMaxBet(true);},30000);
+const betHTML=()=>`<div class="field"><label for="bet">Bet (SOL)</label><div class="betrow"><input id="bet" type="number" inputmode="decimal" min="0.001" max="${MAX_BET}" step="0.001" value="0.005"><button type="button" data-m="0.5" aria-label="Half">½</button><button type="button" data-m="2" aria-label="Double">2×</button><button type="button" data-m="max">MAX</button></div><div id="maxBetInfo" style="font-size:.75rem;margin-top:4px;color:var(--mu)"></div></div>`;
 function bbar_insert(c){const r=$('#bbRes');r&&r.parentElement.before(c)}
-function wireBet(root){$$('.betrow button',root).forEach(b=>b.onclick=()=>{const i=$('#bet');let v=parseFloat(i.value)||0;const m=b.dataset.m;v=m==='max'?Math.min(st.bal,MAX_BET):Math.min(v*parseFloat(m),MAX_BET);i.value=String(Math.floor(v*1e4)/1e4)})}
+function wireBet(root){
+  $$('.betrow button',root).forEach(b=>b.onclick=()=>{
+    const i=$('#bet');let v=parseFloat(i.value)||0;const m=b.dataset.m;
+    const cap=(!st.practice&&isLive(st.curGame)&&window._curMaxBetSol>0)?window._curMaxBetSol:MAX_BET;
+    v=m==='max'?Math.min(st.bal,cap):Math.min(v*parseFloat(m),cap);
+    i.value=String(Math.floor(v*1e4)/1e4);
+    refreshMaxBet(false);
+  });
+  const inp=$('#bet',root);if(inp)inp.addEventListener('input',()=>refreshMaxBet(false));
+  refreshMaxBet(false);
+}
 const getBet=()=>parseFloat($('#bet').value);
 function take(a){
   if(!st.practice&&!st.wallet){toast('Connect a Solana wallet first');openWallet();return false}
@@ -7995,7 +8063,7 @@ function pay(a,p,label){
     if(ALL_BETS.length>200)ALL_BETS.length=200;
     localStorage.setItem('oh_bets',JSON.stringify(ALL_BETS));
   }catch(e){}
-  const rs=$('#bbRes');if(rs){const d=p-a;rs.className=d>0?'win':d<0?'bad':'';rs.textContent=d>0?'+'+d.toFixed(4):d<0?'−'+(-d).toFixed(4):'Push';if(st._lastTx){const {placeTx,settleTx}=st._lastTx;rs.innerHTML+=` <span style="font-size:.75rem;margin-left:8px"><a href="https://explorer.solana.com/tx/${placeTx}?cluster=devnet" target="_blank" rel="noopener">Bet transaction</a> · <a href="https://explorer.solana.com/tx/${settleTx}?cluster=devnet" target="_blank" rel="noopener">Settlement transaction</a></span>`;}}
+  const rs=$('#bbRes');if(rs){const d=p-a;rs.className=d>0?'win':d<0?'bad':'';rs.textContent=d>0?'+'+d.toFixed(4):d<0?'−'+(-d).toFixed(4):'Push';if(st._lastTx&&window.ohExplorer){const {placeTx,settleTx}=st._lastTx;rs.innerHTML+=` <span style="font-size:.75rem;margin-left:8px"><a href="${window.ohExplorer('tx',placeTx)}" target="_blank" rel="noopener">Bet transaction</a> · <a href="${window.ohExplorer('tx',settleTx)}" target="_blank" rel="noopener">Settlement transaction</a></span>`;}}
   if(p>a){SND.win();celebrate(a,p)}else if(p<=0)SND.lose();
   if(st.curGame){
     const arr=STREAKS[st.curGame]||(STREAKS[st.curGame]=[]);
@@ -9252,7 +9320,7 @@ window.OH_CHAIN = (function() {
   const selfExclude = (days) => run(async () => { const p = need(); return send([await oh().selfExclude(pk(p.publicKey.toString()), Number(days))]); });
   async function fetchPlayer(addr) {
     const p = await readPlayer(addr); if (!p) return null;
-    return { balance: sol(p.balance), nonce: p.nonce, dailyLossLimit: sol(p.dailyLossLimit), pendingLimit: sol(p.pendingLimit), excludedUntil: Number(p.excludedUntil), open: p.open.active };
+    return { balance: sol(p.balance), nonce: p.nonce, dailyLossLimit: sol(p.dailyLossLimit), pendingLimit: sol(p.pendingLimit), pendingLimitAt: Number(p.pendingLimitAt || 0), excludedUntil: Number(p.excludedUntil), open: p.open.active };
   }
   async function history(addr) {
     const r = await fetch(SETTLER_URL + '/bets?wallet=' + encodeURIComponent(addr));
@@ -9502,7 +9570,7 @@ function fillVerifier(){
       out.innerHTML=`<small class="mu">${game} result, on-chain scheme</small><div class="res2">${o}</div><p class="mu" style="margin-bottom:14px;font-size:.9rem">Derived from HMAC-SHA256(server seed, client seed ‖ nonce ‖ round). The program runs the same check when it pays.</p><code style="display:block;margin-bottom:6px">sha256(server seed) = ${hh}</code><code style="display:block">${k}</code>`;return}
     const f=await floats(server,client,nonce,n),d=derive(game,f,ex),h=await sha256(server),c=$('#vHash').value.trim().toLowerCase();
     const chk=c?(c===h?'<span class="ok">Commit hash matches the server seed</span>':'<span class="bad">Commit hash does NOT match this seed</span>'):'No commit hash entered, paste one to check it';
-    out.innerHTML=`<small class="mu">${game} result</small><div class="res2">${d.big}</div><p class="mu" style="margin-bottom:14px;font-size:.9rem">${d.note}</p><code>sha256(server seed) = ${h}</code><code>${chk}</code><code>floats = ${f.slice(0,6).map(v=>v.toFixed(8)).join('  ')}${f.length>6?' …':''}</code>`;
+    out.innerHTML=`<small class="mu">${game} result</small><div class="res2">${d.big}</div><p class="mu" style="margin-bottom:14px;font-size:.9rem">${d.note}</p><code style="display:block;margin-bottom:6px">sha256(server seed) = ${h}</code><code style="display:block;margin-bottom:6px">${chk}</code><code style="display:block">floats = ${f.slice(0,6).map(v=>v.toFixed(8)).join('  ')}${f.length>6?' …':''}</code>`;
   };
 })();
 

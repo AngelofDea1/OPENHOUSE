@@ -9,5 +9,8 @@
     { "src": "/api/(.*)", "dest": "/api/index.js" },
     { "src": "/vendor/(.*)", "dest": "/vendor/$1" },
     { "src": "/(.*)", "dest": "/index.html" }
+  ],
+  "crons": [
+    { "path": "/api/admin/sweep", "schedule": "0 4 * * *" }
   ]
 }
