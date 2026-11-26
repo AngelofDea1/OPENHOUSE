@@ -183,12 +183,12 @@ export async function replay(
       if (finished) break;
       const act = actions[idx];
       if (act === 255) {
-        if (safeCount === 0) throw new Error('invalid action');
+        if (safeCount === 0) continue;
         payout = minesValue(amount, m, safeCount).value;
         finished = true;
         cashed = true;
       } else if (act <= 24) {
-        if (revealed.has(act)) throw new Error('invalid action');
+        if (revealed.has(act)) continue;
         revealed.add(act);
         if (mines.has(act)) {
           payout = 0n;
@@ -203,7 +203,7 @@ export async function replay(
           }
         }
       } else {
-        throw new Error('invalid action');
+        continue;
       }
     }
 
@@ -231,12 +231,12 @@ export async function replay(
       if (finished) break;
       const act = actions[idx];
       if (act === 255) {
-        if (streak === 0) throw new Error('invalid action');
+        if (streak === 0) continue;
         payout = value;
         finished = true;
         cashed = true;
       } else if (act === 0 || act === 1) {
-        if (streak >= 19) throw new Error('invalid action');
+        if (streak >= 19) continue;
         const cur = ranks[streak];
         const next = ranks[streak + 1];
         const won = act === 0 ? next >= cur : next <= cur;
@@ -261,7 +261,7 @@ export async function replay(
           }
         }
       } else {
-        throw new Error('invalid action');
+        continue;
       }
     }
 
@@ -288,12 +288,12 @@ export async function replay(
       if (finished) break;
       const act = actions[idx];
       if (act === 255) {
-        if (safeFloors === 0) throw new Error('invalid action');
+        if (safeFloors === 0) continue;
         payout = towersValue(amount, cols, safeFloors).value;
         finished = true;
         cashed = true;
       } else if (act < cols) {
-        if (safeFloors >= 8) throw new Error('invalid action');
+        if (safeFloors >= 8) continue;
         if (act === bombs[safeFloors]) {
           payout = 0n;
           finished = true;
@@ -307,7 +307,7 @@ export async function replay(
           }
         }
       } else {
-        throw new Error('invalid action');
+        continue;
       }
     }
 
@@ -330,7 +330,8 @@ export async function replay(
     const pNat = bjHandValue(playerCards) === 21;
     const dNat = bjHandValue(dealerCards) === 21;
     if (pNat || dNat) {
-      const payout = pNat && dNat ? amount : pNat ? (amount * 5n) / 2n : 0n;
+      const basePayout = pNat && dNat ? amount : pNat ? (amount * 5n) / 2n : 0n;
+      const payout = basePayout + extraStake;
       return { payout, finished: true, cashed: payout > 0n, detail: { playerCards, dealerCards, natural: true } };
     }
 
@@ -356,7 +357,7 @@ export async function replay(
       } else if (act === 1) {
         stood = true;
       } else if (act === 2) {
-        if (idx !== 0 || doubled) throw new Error('invalid action');
+        if (idx !== 0 || doubled || stood) continue;
         doubled = true;
         stood = true;
         playerCards.push(deck[ptr++]);
@@ -365,7 +366,7 @@ export async function replay(
           finished = true;
         }
       } else {
-        throw new Error('invalid action');
+        continue;
       }
     }
 
@@ -390,9 +391,15 @@ export async function replay(
   const dealt = deck.slice(0, 5);
   let mask = 31;
   let finished = false;
-  if (actionCount > 0) {
-    mask = actions[0];
-    if (mask > 31) throw new Error('invalid action');
+  let maskOpt: number | null = null;
+  for (let i = 0; i < actionCount; i++) {
+    if (actions[i] <= 31) {
+      maskOpt = actions[i];
+      break;
+    }
+  }
+  if (maskOpt !== null) {
+    mask = maskOpt;
     finished = true;
   } else if (timeout) {
     mask = 31;

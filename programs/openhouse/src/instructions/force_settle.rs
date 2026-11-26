@@ -9,12 +9,9 @@ use crate::instructions::refund_bet::BET_REFUND_TIMEOUT_SECONDS;
 use crate::state::{Config, Player, SeedCommitment, Vault};
 
 /// Anyone may call force_settle when a multi-step round has not seen any action
-/// for ROUND_TIMEOUT seconds. The settler must still provide the server seed.
-///
-/// Refund (120 s from last_action_at) path:
-///   - If action_count == 0, the standard refund_bet from created_at applies.
-///   - If action_count > 0, refund_bet is refused and this instruction is the
-///     only way out if the settler goes silent (protects the player).
+/// for ROUND_TIMEOUT (600s) seconds. Because it still needs the server seed,
+/// it stays settler-signed and is the happy path for abandoned rounds.
+/// If the settler never acts, refund_bet after ROUND_REFUND_TIMEOUT (3600s) is the safety net.
 #[derive(Accounts)]
 pub struct ForceSettle<'info> {
     #[account(seeds = [b"config"], bump = config.bump)]

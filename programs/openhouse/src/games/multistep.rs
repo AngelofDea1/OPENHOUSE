@@ -89,14 +89,14 @@ pub fn replay_mines(
 
         if action == 255 {
             // cash out
-            if safe_count == 0 { return Err(error!(OpenHouseError::InvalidAction)); }
+            if safe_count == 0 { continue; }
             let (v, _) = mines_value(amount, m, safe_count);
             payout = v;
             finished = true;
             cashed = true;
         } else if action <= 24 {
             let cell = action as usize;
-            if revealed[cell] { return Err(error!(OpenHouseError::InvalidAction)); }
+            if revealed[cell] { continue; }
             revealed[cell] = true;
             if mine_set.contains(&(cell as u8)) {
                 payout = 0;
@@ -115,7 +115,7 @@ pub fn replay_mines(
                 }
             }
         } else {
-            return Err(error!(OpenHouseError::InvalidAction));
+            continue;
         }
     }
 
@@ -191,7 +191,7 @@ pub fn replay_hilo(
         let action = actions[idx];
         if action == 255 {
             // cash out
-            if guess_count == 0 { return Err(error!(OpenHouseError::InvalidAction)); }
+            if guess_count == 0 { continue; }
             let valid_guesses: Vec<_> = guesses[..guess_count].iter().filter_map(|x| *x).collect();
             let (v, _) = hilo_value(amount, &valid_guesses);
             payout = v;
@@ -221,7 +221,7 @@ pub fn replay_hilo(
                 finished = true;
             }
         } else {
-            return Err(error!(OpenHouseError::InvalidAction));
+            continue;
         }
     }
 
@@ -297,7 +297,7 @@ pub fn replay_towers(
         if finished { break; }
         let action = actions[idx];
         if action == 255 {
-            if floor == 0 { return Err(error!(OpenHouseError::InvalidAction)); }
+            if floor == 0 { continue; }
             let (v, _) = towers_value(amount, cols, floor as u32);
             payout = v;
             finished = true;
@@ -321,7 +321,7 @@ pub fn replay_towers(
                 }
             }
         } else {
-            return Err(error!(OpenHouseError::InvalidAction));
+            continue;
         }
     }
 
@@ -419,13 +419,14 @@ pub fn replay_blackjack(
     let dealer_bj = bj_is_bj(&dealer_init);
 
     if player_bj || dealer_bj {
-        let payout = if player_bj && dealer_bj {
+        let base_payout = if player_bj && dealer_bj {
             amount // push
         } else if player_bj {
             amount * 5 / 2
         } else {
             0
         };
+        let payout = base_payout + extra_stake;
         return Ok(Outcome { payout, finished: true, cashed: payout > 0 });
     }
 
@@ -465,8 +466,8 @@ pub fn replay_blackjack(
                 stood = true;
             }
             2 => {
-                // double — only as first action, handled at play_action level too
-                if idx != 0 || doubled { return Err(error!(OpenHouseError::InvalidAction)); }
+                // double — only as first action; ignore if not first or already doubled/stood
+                if idx != 0 || doubled || stood { continue; }
                 doubled = true;
                 stood = true; // one card then stand
                 let c = next_card(&mut ptr);
@@ -478,7 +479,7 @@ pub fn replay_blackjack(
                     finished = true;
                 }
             }
-            _ => return Err(error!(OpenHouseError::InvalidAction)),
+            _ => continue,
         }
     }
 
@@ -584,16 +585,22 @@ pub fn replay_poker(
     // Initial hand: deck[0..5]
     let mut hand: [u8; 5] = [deck[0], deck[1], deck[2], deck[3], deck[4]];
 
-    // Parse hold mask: first action (0..=31). If timeout with no action, hold all (mask=31).
-    let mask: u8 = if action_count == 0 {
-        if timeout { 31 } else {
-            // Round not finished yet (no action submitted).
-            return Ok(Outcome { payout: 0, finished: false, cashed: false });
+    // Parse hold mask: first valid action (0..=31). If timeout with no valid action, hold all (mask=31).
+    let mut mask_opt: Option<u8> = None;
+    for &m in &actions[..action_count as usize] {
+        if m <= 31 {
+            mask_opt = Some(m);
+            break;
         }
-    } else {
-        let m = actions[0];
-        if m > 31 { return Err(error!(OpenHouseError::InvalidAction)); }
-        m
+    }
+    let mask: u8 = match mask_opt {
+        Some(m) => m,
+        None => {
+            if timeout { 31 } else {
+                // Round not finished yet (no valid action submitted).
+                return Ok(Outcome { payout: 0, finished: false, cashed: false });
+            }
+        }
     };
 
     // Replace non-held cards from deck[5..].
@@ -645,42 +652,50 @@ pub fn multistep_max_payout(game_id: &[u8; 16], params: &[u8; 32], amount: u64) 
 /// Only checks range validity and basic structural rules.
 pub fn validate_action_shape(
     game_id: &[u8; 16], params: &[u8; 32],
-    action: u8, _logged: &[u8; 32], _logged_count: u8,
+    action: u8, logged: &[u8; 32], logged_count: u8,
 ) -> Result<()> {
+    let history = &logged[..logged_count as usize];
     match game_name(game_id) {
         b"mines" => {
+            // Reject any action after a cash out (255) is already in the log.
+            require!(!history.contains(&255), OpenHouseError::InvalidAction);
             // 0..=24 (cell reveal) or 255 (cash out)
             require!(action <= 24 || action == 255, OpenHouseError::InvalidAction);
             if action == 255 {
-                require!(_logged_count > 0, OpenHouseError::InvalidAction); // must have revealed at least one cell
+                require!(logged_count > 0, OpenHouseError::InvalidAction); // must have revealed at least one cell
+            } else {
+                // Reject duplicate reveal of a cell already in the log.
+                require!(!history.contains(&action), OpenHouseError::InvalidAction);
             }
         }
         b"hilo" => {
+            require!(!history.contains(&255), OpenHouseError::InvalidAction);
             require!(action <= 1 || action == 255, OpenHouseError::InvalidAction);
             if action == 255 {
-                require!(_logged_count > 0, OpenHouseError::InvalidAction);
+                require!(logged_count > 0, OpenHouseError::InvalidAction);
             }
         }
         b"towers" => {
+            require!(!history.contains(&255), OpenHouseError::InvalidAction);
             let diff = params[0];
             let cols = match diff { 0 => 4u8, 1 => 3, _ => 2 };
             require!(action < cols || action == 255, OpenHouseError::InvalidAction);
             if action == 255 {
-                require!(_logged_count > 0, OpenHouseError::InvalidAction);
+                require!(logged_count > 0, OpenHouseError::InvalidAction);
             }
         }
         b"blackjack" => {
             // 0=hit, 1=stand, 2=double. double only as first action.
             require!(action <= 2, OpenHouseError::InvalidAction);
             if action == 2 {
-                require!(_logged_count == 0, OpenHouseError::InvalidAction);
+                require!(logged_count == 0, OpenHouseError::InvalidAction);
             }
         }
         b"poker" => {
             // Hold mask 0..=31
             require!(action <= 31, OpenHouseError::InvalidAction);
             // Only one action allowed.
-            require!(_logged_count == 0, OpenHouseError::InvalidAction);
+            require!(logged_count == 0, OpenHouseError::InvalidAction);
         }
         _ => return Err(error!(OpenHouseError::InvalidGameParams)),
     }
@@ -713,15 +728,22 @@ pub(crate) mod tests {
     fn dummy_seed() -> [u8; 32] { [0u8; 32] }
     fn cseed() -> [u8; 32] { [1u8; 32] }
 
+    fn game_id_for_name(name: &[u8]) -> [u8; 16] {
+        let mut id = [0u8; 16];
+        let n = name.len().min(16);
+        id[..n].copy_from_slice(&name[..n]);
+        id
+    }
+
     // Exhaustive mine board (25 cells, known mine positions via fixed seed)
     #[test]
     fn mines_replay_pure_deterministic() {
         let s = [0xABu8; 32]; let c = [0x01u8; 32];
         let mut p = [0u8; 32]; p[0] = 3; // 3 mines
-        let mut actions = [0u8; 32]; actions[0] = 255; // immediate cashout (invalid, 0 reveals)
-        // cash out with 0 reveals must fail
-        let r = replay_mines(&p, 1_000_000, &s, &c, 0, &actions, 1, false);
-        assert!(r.is_err());
+        let mut actions = [0u8; 32]; actions[0] = 255; // immediate cashout (ignored, 0 reveals)
+        // cash out with 0 reveals is a no-op (round not finished)
+        let r = replay_mines(&p, 1_000_000, &s, &c, 0, &actions, 1, false).unwrap();
+        assert!(!r.finished);
         // Different seed => different mine positions
         let s2 = [0xCDu8; 32];
         let d1 = draws64(&s, &c, 0, 25);
@@ -1062,5 +1084,311 @@ pub(crate) mod tests {
         let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../packages/core/test/rust-vectors-b3.json");
         std::fs::write(path, out).unwrap();
         println!("Written rust-vectors-b3.json");
+    }
+
+    #[test]
+    fn rtp_simulation_1m_all_games() {
+        // D.1: 1 million simulated rounds per config, 3 stop strategies each.
+        // Uses the actual replay functions — no formula shortcuts.
+        // Passes when measured RTP is within 4 sigma of theoretical and theoretical <= 1.0.
+        let mut rng: u64 = 0xAAAA_BBBB_CCCC_DDDD;
+        let mut xshift = |r: &mut u64| { *r ^= *r << 13; *r ^= *r >> 7; *r ^= *r << 17; *r };
+        let mut next_32 = |r: &mut u64| -> [u8; 32] {
+            let mut b = [0u8; 32];
+            for c in b.chunks_mut(8) { c.copy_from_slice(&{ *r ^= *r << 13; *r ^= *r >> 7; *r ^= *r << 17; *r }.to_le_bytes()); } b
+        };
+        let amount = 1_000_000u64;
+        let n = 1_000_000usize;
+        let sigma_tol = 4.0_f64 / (n as f64).sqrt();
+
+        // ── Mines: stop after 1, mid, and all safe reveals for a few m values ──
+        for m in [1u8, 3, 10, 24] {
+            let safe = 25 - m as u32;
+            for &stop_at in &[1u32, safe.max(2) / 2, safe] {
+                let mut p = [0u8; 32]; p[0] = m;
+                // Find the actual stop step (either stop_at or when CAP_X100 is reached).
+                let mut actual_stop = stop_at;
+                for k in 1..=stop_at {
+                    let (_, capped) = mines_value(amount, m, k);
+                    if capped { actual_stop = k; break; }
+                }
+                let mut prob_th = 1.0f64;
+                for i in 0..actual_stop {
+                    prob_th *= (safe - i) as f64 / (25 - i) as f64;
+                }
+                let (val_th, _) = mines_value(amount, m, actual_stop);
+                let theoretical = prob_th * val_th as f64 / amount as f64;
+                assert!(theoretical <= 1.0, "mines m={m} stop={stop_at} theoretical={theoretical:.5} > 1");
+
+                let mut total_payout = 0u128;
+                for i in 0..n {
+                    let s = next_32(&mut rng); let c = next_32(&mut rng);
+                    let mut actions = [0u8; 32];
+                    let k = stop_at.min(24) as usize;
+                    for j in 0..k { actions[j] = j as u8; }
+                    let ac = if stop_at < safe {
+                        actions[k] = 255; // cash out
+                        (k + 1) as u8
+                    } else {
+                        k as u8
+                    };
+                    let o = replay_mines(&p, amount, &s, &c, i as u64, &actions, ac, false).unwrap();
+                    total_payout += o.payout as u128;
+                }
+                let measured = total_payout as f64 / (n as f64 * amount as f64);
+                let mult = val_th as f64 / amount as f64;
+                let tol = 4.0 * (prob_th * (1.0 - prob_th)).sqrt() * mult / (n as f64).sqrt() + 1e-6;
+                assert!(measured <= theoretical + tol,
+                    "mines m={m} stop={stop_at} measured={measured:.5} > theoretical={theoretical:.5}+4s");
+                eprintln!("mines m={m} stop={stop_at}: theoretical={theoretical:.4} measured={measured:.4}");
+            }
+        }
+
+        // ── Towers: 3 difficulties, stop after 1 / 4 / 8 floors ──
+        for diff in 0u8..=2 {
+            let cols = towers_cols(diff);
+            for &stop_at in &[1u32, 4, 8] {
+                let mut p = [0u8; 32]; p[0] = diff;
+                let prob_th = ((cols - 1) as f64 / cols as f64).powi(stop_at as i32);
+                let (val_th, _) = towers_value(amount, cols, stop_at);
+                let theoretical = prob_th * val_th as f64 / amount as f64;
+                assert!(theoretical <= 1.0, "towers diff={diff} stop={stop_at} theoretical={theoretical:.5} > 1");
+
+                let mut total_payout = 0u128;
+                for i in 0..n {
+                    let s = next_32(&mut rng); let c = next_32(&mut rng);
+                    let mut actions = [0u8; 32];
+                    let ac = if stop_at < 8 {
+                        actions[stop_at as usize] = 255; // cash out
+                        (stop_at + 1) as u8
+                    } else {
+                        8
+                    };
+                    let o = replay_towers(&p, amount, &s, &c, i as u64, &actions, ac, false).unwrap();
+                    total_payout += o.payout as u128;
+                }
+                let measured = total_payout as f64 / (n as f64 * amount as f64);
+                let mult = val_th as f64 / amount as f64;
+                let tol = 4.0 * (prob_th * (1.0 - prob_th)).sqrt() * mult / (n as f64).sqrt() + 1e-6;
+                assert!(measured <= theoretical + tol,
+                    "towers diff={diff} stop={stop_at} measured={measured:.5} > theoretical={theoretical:.5}+4s");
+                eprintln!("towers diff={diff} stop={stop_at}: theoretical={theoretical:.4} measured={measured:.4}");
+            }
+        }
+
+        // ── HiLo: always guess "higher" for 3 guesses then cash out ──
+        {
+            let params = [0u8; 32];
+            let mut total_payout = 0u128;
+            for i in 0..n {
+                let s = next_32(&mut rng); let c = next_32(&mut rng);
+                let mut actions = [0u8; 32]; actions[0]=0; actions[1]=0; actions[2]=0; actions[3]=255;
+                let o = replay_hilo(&params, amount, &s, &c, i as u64, &actions, 4, false).unwrap();
+                total_payout += o.payout as u128;
+            }
+            let measured = total_payout as f64 / (n as f64 * amount as f64);
+            assert!(measured <= 1.0, "hilo measured={measured:.5} > 1.0");
+            eprintln!("hilo 3-guess always-higher then cashout: measured={measured:.4}");
+        }
+        let _ = xshift;
+    }
+
+    #[test]
+    fn max_payout_covers_all_replay_outputs() {
+        // D.5: for every game and config, max_payout >= every payout replay can produce.
+        let mut rng: u64 = 0x9876_5432_1A2B_3C4D;
+        let mut next_32 = |r: &mut u64| -> [u8; 32] {
+            let mut b = [0u8; 32]; for c in b.chunks_mut(8) { c.copy_from_slice(&{ *r ^= *r << 13; *r ^= *r >> 7; *r ^= *r << 17; *r }.to_le_bytes()); } b
+        };
+        let amount = 1_000_000u64;
+
+        // Mines
+        for m in 1u8..=24 {
+            let mut p = [0u8; 32]; p[0] = m;
+            let max_p = multistep_max_payout(&game_id_for_name(b"mines"), &p, amount).unwrap();
+            let safe = 25 - m as usize;
+            for _ in 0..1_000 {
+                let s = next_32(&mut rng); let c = next_32(&mut rng);
+                let mut actions = [0u8; 32];
+                for j in 0..safe { actions[j] = j as u8; }
+                let o = replay_mines(&p, amount, &s, &c, 1, &actions, safe as u8, true).unwrap();
+                assert!(o.payout <= max_p, "mines m={m} payout={} > max={max_p}", o.payout);
+            }
+        }
+        // Towers
+        for diff in 0u8..=2 {
+            let mut p = [0u8; 32]; p[0] = diff;
+            let max_p = multistep_max_payout(&game_id_for_name(b"towers"), &p, amount).unwrap();
+            let cols = towers_cols(diff);
+            for _ in 0..1_000 {
+                let s = next_32(&mut rng); let c = next_32(&mut rng);
+                let d = draws64(&s, &c, 0, 8);
+                let mut actions = [0u8; 32];
+                for f in 0..8usize {
+                    let bomb = ((d[f] as u64 * cols as u64) >> 32) as usize;
+                    actions[f] = (0..cols as usize).find(|&col| col != bomb).unwrap_or(0) as u8;
+                }
+                let o = replay_towers(&p, amount, &s, &c, 0, &actions, 8, false).unwrap();
+                assert!(o.payout <= max_p, "towers diff={diff} payout={} > max={max_p}", o.payout);
+            }
+        }
+        // HiLo
+        {
+            let p = [0u8; 32];
+            let max_p = multistep_max_payout(&game_id_for_name(b"hilo"), &p, amount).unwrap();
+            for i in 0..1_000u64 {
+                let s = next_32(&mut rng); let c = next_32(&mut rng);
+                let actions = [0u8; 32]; // 0=higher, 19 guesses
+                let o = replay_hilo(&p, amount, &s, &c, i, &actions, 19, true).unwrap();
+                assert!(o.payout <= max_p, "hilo payout={} > max={max_p}", o.payout);
+            }
+        }
+        // Blackjack
+        {
+            let p = [0u8; 32];
+            let max_p = multistep_max_payout(&game_id_for_name(b"blackjack"), &p, amount).unwrap();
+            for i in 0..1_000u64 {
+                let s = next_32(&mut rng); let c = next_32(&mut rng);
+                let actions = [1u8; 32]; // stand immediately
+                let o = replay_blackjack(&p, amount, &s, &c, i, &actions, 1, 0, false).unwrap();
+                assert!(o.payout <= max_p, "bj payout={} > max={max_p}", o.payout);
+            }
+        }
+        // Poker
+        {
+            let p = [0u8; 32];
+            let max_p = multistep_max_payout(&game_id_for_name(b"poker"), &p, amount).unwrap();
+            for i in 0..1_000u64 {
+                let s = next_32(&mut rng); let c = next_32(&mut rng);
+                let mut actions = [0u8; 32]; actions[0] = 31; // hold all
+                let o = replay_poker(&p, amount, &s, &c, i, &actions, 1, false).unwrap();
+                assert!(o.payout <= max_p, "poker payout={} > max={max_p}", o.payout);
+            }
+        }
+    }
+
+    #[test]
+    fn blackjack_natural_with_extra_stake_returns_extra() {
+        // Test all 3 natural cases when extra_stake > 0:
+        // 1) player natural only -> amount * 5 / 2 + extra_stake
+        // 2) dealer natural only -> extra_stake
+        // 3) both natural (push) -> amount + extra_stake
+        let amount = 1_000_000u64;
+        let extra = 1_000_000u64;
+        let p = [0u8; 32];
+        let c = [0x11u8; 32];
+        let actions = [2u8; 32];
+        let mut saw_player_nat = false;
+        let mut saw_dealer_nat = false;
+        let mut saw_push_nat = false;
+        for nonce in 0u64..5000 {
+            let mut s = [0u8; 32];
+            s[0..8].copy_from_slice(&nonce.to_le_bytes());
+            let d = draws64(&s, &c, nonce, 52);
+            let deck = bj_deck(&d);
+            let p_bj = bj_is_bj(&[deck[0], deck[2]]);
+            let d_bj = bj_is_bj(&[deck[1], deck[3]]);
+            if !p_bj && !d_bj { continue; }
+            let out = replay_blackjack(&p, amount, &s, &c, nonce, &actions, 1, extra, false).unwrap();
+            assert!(out.finished);
+            if p_bj && d_bj {
+                assert_eq!(out.payout, amount + extra);
+                saw_push_nat = true;
+            } else if p_bj {
+                assert_eq!(out.payout, amount * 5 / 2 + extra);
+                saw_player_nat = true;
+            } else {
+                assert_eq!(out.payout, extra);
+                saw_dealer_nat = true;
+            }
+            if saw_player_nat && saw_dealer_nat && saw_push_nat { break; }
+        }
+        assert!(saw_player_nat && saw_dealer_nat && saw_push_nat);
+    }
+
+    #[test]
+    fn random_logs_1m_never_panic_or_err_or_exceed_max() {
+        let mut rng = 0x9E37_79B9_7F4A_7C15u64;
+        let mut next = || -> u64 {
+            rng ^= rng << 13; rng ^= rng >> 7; rng ^= rng << 17; rng
+        };
+        let amount = 1_000_000u64;
+        let games: [&[u8]; 5] = [b"mines", b"hilo", b"towers", b"blackjack", b"poker"];
+        for i in 0..1_000_000usize {
+            let g = games[i % 5];
+            let mut gid = [0u8; 16];
+            gid[..g.len()].copy_from_slice(g);
+            let mut params = [0u8; 32];
+            if g == b"mines" { params[0] = ((next() % 24) + 1) as u8; }
+            if g == b"towers" { params[0] = (next() % 3) as u8; }
+            let mut s = [0u8; 32];
+            let mut c = [0u8; 32];
+            s[0..8].copy_from_slice(&next().to_le_bytes());
+            c[0..8].copy_from_slice(&next().to_le_bytes());
+            let nonce = next();
+            let len = (next() % 33) as u8;
+            let mut actions = [0u8; 32];
+            for j in 0..len as usize {
+                actions[j] = (next() & 0xFF) as u8;
+            }
+            let extra = if g == b"blackjack" && len > 0 && actions[0] == 2 { amount } else { 0 };
+            let timeout = (next() & 1) == 1;
+            let out = replay(&gid, &params, amount, &s, &c, nonce, &actions, len, extra, timeout).unwrap();
+            let max_p = multistep_max_payout(&gid, &params, amount).unwrap();
+            let cap_p = if g == b"blackjack" { max_p.max((amount + extra) * 2) } else { max_p };
+            assert!(out.payout <= cap_p, "payout {} > max {} for {:?}", out.payout, cap_p, g);
+        }
+    }
+
+    #[test]
+    fn poker_evaluator_exhaustive_2598960() {
+        // Enumerate all C(52,5) = 2,598,960 hands and verify exact category counts.
+        // poker_eval returns the payout multiplier: 800=royal, 50=str-flush, 25=4oak,
+        // 9=full-house, 6=flush, 4=straight, 3=3oak, 2=two-pair, 1=JoB, 0=nothing.
+        let mut royal = 0u64;
+        let mut str_flush = 0u64;
+        let mut four_oak = 0u64;
+        let mut full_house = 0u64;
+        let mut flush = 0u64;
+        let mut straight = 0u64;
+        let mut three_oak = 0u64;
+        let mut two_pair = 0u64;
+        let mut jacks_or_better = 0u64;
+        let mut other = 0u64;
+        let mut total = 0u64;
+        for a in 0u8..48 {
+            for b in (a + 1)..49 {
+                for c in (b + 1)..50 {
+                    for d in (c + 1)..51 {
+                        for e in (d + 1)..52 {
+                            total += 1;
+                            match poker_eval(&[a, b, c, d, e]) {
+                                800 => royal += 1,
+                                50  => str_flush += 1,
+                                25  => four_oak += 1,
+                                9   => full_house += 1,
+                                6   => flush += 1,
+                                4   => straight += 1,
+                                3   => three_oak += 1,
+                                2   => two_pair += 1,
+                                1   => jacks_or_better += 1,
+                                _   => other += 1,
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        assert_eq!(total, 2_598_960);
+        assert_eq!(royal, 4, "royal flush");
+        assert_eq!(str_flush, 36, "straight flush");
+        assert_eq!(four_oak, 624, "four of a kind");
+        assert_eq!(full_house, 3_744, "full house");
+        assert_eq!(flush, 5_108, "flush");
+        assert_eq!(straight, 10_200, "straight");
+        assert_eq!(three_oak, 54_912, "three of a kind");
+        assert_eq!(two_pair, 123_552, "two pair");
+        assert_eq!(jacks_or_better, 337_920, "jacks or better");
+        assert_eq!(other, 2_062_860, "other / low pair");
     }
 }

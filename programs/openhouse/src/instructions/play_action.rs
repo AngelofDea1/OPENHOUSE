@@ -6,6 +6,8 @@ use crate::state::{Config, Player, Vault};
 
 /// Timeout after which force_settle is allowed for multi-step games.
 pub const ROUND_TIMEOUT: i64 = 600; // 10 minutes
+/// Safety-net timeout after which anyone can call refund_bet if the settler never acts.
+pub const ROUND_REFUND_TIMEOUT: i64 = 3600; // 1 hour
 
 #[derive(Accounts)]
 pub struct PlayAction<'info> {

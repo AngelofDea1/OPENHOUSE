@@ -530,3 +530,83 @@ async fn test9_attacks_and_edge_cases() {
     let r = h.send(&[H::ix_play_action(&pw, &pw, 2)], &[&player]).await; // double after hit
     assert_err(r, OpenHouseError::InvalidAction);
 }
+
+// ─── Test 10: 1-hour safety-net refund (settler never acts) ───────────────────
+/// A.2: settler never reveals the seed. After action_count > 0, refund_bet
+/// is blocked until ROUND_REFUND_TIMEOUT (3600 s) from last_action_at.
+/// Anyone (including third parties) may then call refund_bet.
+/// Conservation must hold. After refund, a later refund or settle fails.
+#[tokio::test]
+async fn test10_one_hour_safety_refund() {
+    let mut h = H::new().await;
+    let player = h.setup_vault_and_player(100, 10).await;
+    let pw = player.pubkey();
+    let sk = Keypair::from_bytes(&h.settler.to_bytes()).unwrap();
+    let stranger = Keypair::new();
+    h.fund(&stranger.pubkey(), SOL).await;
+
+    let amount = 10_000_000u64;
+    let mut p = [0u8; 32]; p[0] = 3; // mines m=3
+    let mp = mines_max_payout(&p, amount).unwrap();
+
+    // ── Case A: 2 actions logged, refund fails at 59 min, succeeds at 61 min ──
+    let (_s1, sh1) = h.commit_next().await;
+    h.send(&[H::ix_bet(&pw, &pw, "mines", amount, mp, p, cseed(10), sh1)], &[&player]).await.unwrap();
+    h.send(&[H::ix_play_action(&pw, &pw, 0)], &[&player]).await.unwrap();
+    h.send(&[H::ix_play_action(&pw, &pw, 1)], &[&player]).await.unwrap();
+
+    let vault_before = h.vault().await;
+    let pl_before = h.player(&pw).await;
+    // 59 minutes from last_action_at — must fail
+    h.warp(59 * 60).await;
+    let r = h.send(&[H::ix_refund(&pw, &pw)], &[&player]).await;
+    assert_err(r, OpenHouseError::RefundTimeoutNotReached);
+    // Stranger also fails
+    let r = h.send(&[H::ix_refund(&stranger.pubkey(), &pw)], &[&stranger]).await;
+    assert_err(r, OpenHouseError::RefundTimeoutNotReached);
+
+    // 61 minutes total — succeeds for the player themselves
+    h.warp(2 * 60 + 5).await;
+    h.send(&[H::ix_refund(&pw, &pw)], &[&player]).await.unwrap();
+    let pl_after = h.player(&pw).await;
+    assert!(!pl_after.open.active);
+    assert_eq!(pl_after.balance, pl_before.balance + amount); // stake returned
+    let vault_after = h.vault().await;
+    assert_eq!(vault_after.reserved_payouts, vault_before.reserved_payouts - (mp - amount));
+    // Conservation: total_deposited + accrued_fees + player.balance unchanged (refund is not a win)
+    assert_eq!(vault_after.total_deposited + vault_after.accrued_fees + pl_after.balance,
+               vault_before.total_deposited + vault_before.accrued_fees + pl_before.balance + amount);
+
+    // ── Case B: Blackjack after double (extra_stake refunded) ──
+    let p_bj = [0u8; 32];
+    let mp_bj = blackjack_max_payout(&p_bj, amount).unwrap();
+    let (_s2, sh2) = h.commit_next().await;
+    h.send(&[H::ix_bet(&pw, &pw, "blackjack", amount, mp_bj, p_bj, cseed(11), sh2)], &[&player]).await.unwrap();
+    h.send(&[H::ix_play_action(&pw, &pw, 2)], &[&player]).await.unwrap(); // double
+    let pl_mid = h.player(&pw).await;
+    assert_eq!(pl_mid.open.extra_stake, amount);
+    let bal_before_bj = pl_mid.balance;
+    let vault_before_bj = h.vault().await;
+
+    // Third-party refund after 1 hour
+    h.warp(3601).await;
+    h.send(&[H::ix_refund(&stranger.pubkey(), &pw)], &[&stranger]).await.unwrap();
+    let pl_after_bj = h.player(&pw).await;
+    assert!(!pl_after_bj.open.active);
+    // extra_stake (double) + original amount returned
+    assert_eq!(pl_after_bj.balance, bal_before_bj + 2 * amount);
+    let vault_after_bj = h.vault().await;
+    assert_eq!(vault_after_bj.reserved_payouts, vault_before_bj.reserved_payouts - (pl_mid.open.max_payout - 2 * amount));
+
+    // ── Case C: Settler still settling a finished round BEFORE 1 hour works ──
+    let (s3, sh3) = h.commit_next().await;
+    let mp3 = mines_max_payout(&p, amount).unwrap();
+    h.send(&[H::ix_bet(&pw, &pw, "mines", amount, mp3, p, cseed(12), sh3)], &[&player]).await.unwrap();
+    h.send(&[H::ix_play_action(&pw, &pw, 0)], &[&player]).await.unwrap();
+    h.send(&[H::ix_play_action(&pw, &pw, 255)], &[&player]).await.unwrap(); // cash out
+    // Settler settles < 1 hour
+    h.send(&[h.ix_settle(&pw, sh3, s3)], &[&sk]).await.unwrap();
+    // Later refund fails (NoOpenBet)
+    let r = h.send(&[H::ix_refund(&pw, &pw)], &[&player]).await;
+    assert_err(r, OpenHouseError::NoOpenBet);
+}
