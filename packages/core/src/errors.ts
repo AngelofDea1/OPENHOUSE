@@ -19,6 +19,10 @@ export const ERROR_MESSAGES = [
   'House deposits are temporarily closed',
   'Bet amount is too small',
   'Cannot reclaim that yet, please wait a moment',
+  'Round is not finished yet',
+  'Invalid action for this game',
+  'Force settle timeout not reached yet',
+  'Action log is full (max 32 actions)',
 ] as const;
 
 export const ERROR_NAMES = [
@@ -26,6 +30,7 @@ export const ERROR_NAMES = [
   'BetInProgress', 'RefundTimeoutNotReached', 'VaultUnderfunded', 'BettingPaused', 'Unauthorized',
   'InvalidGameParams', 'SeedAlreadyUsed', 'MathOverflow', 'DailyLossLimitExceeded', 'RentExemptViolation',
   'SelfExcluded', 'VaultDepleted', 'AmountTooSmall', 'CommitmentNotReclaimable',
+  'RoundNotFinished', 'InvalidAction', 'ForceSettleTimeoutNotReached', 'ActionLogFull',
 ] as const;
 
 /** Turn anything a wallet or RPC throws into one sentence a player can act on. */

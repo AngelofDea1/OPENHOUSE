@@ -40,8 +40,8 @@ test('mapHistoryRow maps settler bet payload', () => {
   assert.equal(row.settleTx, 'tx2');
 });
 
-test('decodePlayer decodes a PLAYER_SIZE (306) byte buffer', () => {
-  assert.equal(PLAYER_SIZE, 306);
+test('decodePlayer decodes a PLAYER_SIZE (355) byte buffer', () => {
+  assert.equal(PLAYER_SIZE, 355);
   const buf = new Uint8Array(PLAYER_SIZE);
   const p = decodePlayer(buf);
   assert.equal(p.balance, 0n);

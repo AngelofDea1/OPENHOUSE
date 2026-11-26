@@ -8,7 +8,7 @@ import { createHmac, createHash, randomBytes, timingSafeEqual } from 'node:crypt
 import { Connection, Keypair, PublicKey, Transaction, sendAndConfirmTransaction, ComputeBudgetProgram } from '@solana/web3.js';
 import {
   OpenHouse, decodeConfig, decodePlayer, decodeCommitment, parseSettled,
-  gameKind, resolve, winPayout, explainError, hex, fromHex,
+  gameKind, isMultistepGame, resolve, winPayout, explainError, hex, fromHex,
 } from '../../../packages/core/src/index';
 
 const env = (k: string, d?: string) => process.env[k] ?? d;
@@ -119,14 +119,44 @@ app.post(['/bet/settle', '/api/bet/settle'], wrap(async (req, res) => {
   const o = p.open;
   if (!o.active) return fail(res, 409, 'There is no open bet');
   const kind = gameKind(o.gameId);
-  if (!kind) return fail(res, 501, 'This game is not verified on chain yet, so it cannot be settled here');
+  const isMulti = isMultistepGame(o.gameId);
+  if (!kind && !isMulti) return fail(res, 501, 'This game is not verified on chain yet, so it cannot be settled here');
   const cAcc = await conn.getAccountInfo(oh.commitment(o.serverSeedHash));
   if (!cAcc) return fail(res, 409, 'Seed commitment is missing, use refund after two minutes');
   const c = decodeCommitment(cAcc.data);
   const seed = seedFor(c.index);
   if (hex(sha(seed)) !== hex(o.serverSeedHash)) return fail(res, 500, 'Seed derivation mismatch, check SEED_MASTER_SECRET');
   const ix = await oh.settleBet(secrets!.kp.publicKey, wallet, o.serverSeedHash, seed, 0n);
-  const tx = new Transaction().add(ComputeBudgetProgram.setComputeUnitLimit({ units: 200_000 }), ix);
+  const tx = new Transaction().add(ComputeBudgetProgram.setComputeUnitLimit({ units: isMulti ? 400_000 : 200_000 }), ix);
+  const sig = await sendAndConfirmTransaction(conn, tx, [secrets!.kp], { commitment: 'confirmed' });
+  const t = await conn.getTransaction(sig, { commitment: 'confirmed', maxSupportedTransactionVersion: 0 });
+  const ev = (await parseSettled(t?.meta?.logMessages ?? []))[0];
+  res.json({
+    ok: true, tx: sig, game: o.gameId, amount: o.amount.toString(), nonce: o.nonce.toString(),
+    payout: ev ? ev.payout.toString() : null, win: ev ? ev.payout > 0n : null,
+    serverSeed: hex(seed), serverSeedHash: hex(o.serverSeedHash), clientSeed: hex(o.clientSeed), params: hex(o.params),
+    verifiedOnChain: ev?.verifiedOnChain ?? true,
+  });
+}));
+
+/** Force-settle a timed-out multi-step round. */
+app.post(['/bet/force-settle', '/api/bet/force-settle'], wrap(async (req, res) => {
+  const wallet = pk(req.body?.wallet);
+  if (!wallet) return fail(res, 400, 'wallet is required');
+  if (limited('fs:' + wallet.toBase58(), 10, 60_000)) return fail(res, 429, 'Too many requests, slow down');
+  const plAcc = await conn.getAccountInfo(oh.player(wallet));
+  if (!plAcc) return fail(res, 404, 'No player account');
+  const p = decodePlayer(plAcc.data);
+  const o = p.open;
+  if (!o.active) return fail(res, 409, 'There is no open bet');
+  if (!isMultistepGame(o.gameId)) return fail(res, 400, 'Not a multi-step game');
+  const cAcc = await conn.getAccountInfo(oh.commitment(o.serverSeedHash));
+  if (!cAcc) return fail(res, 409, 'Seed commitment is missing');
+  const c = decodeCommitment(cAcc.data);
+  const seed = seedFor(c.index);
+  if (hex(sha(seed)) !== hex(o.serverSeedHash)) return fail(res, 500, 'Seed derivation mismatch, check SEED_MASTER_SECRET');
+  const ix = await oh.forceSettle(secrets!.kp.publicKey, secrets!.kp.publicKey, wallet, o.serverSeedHash, seed);
+  const tx = new Transaction().add(ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }), ix);
   const sig = await sendAndConfirmTransaction(conn, tx, [secrets!.kp], { commitment: 'confirmed' });
   const t = await conn.getTransaction(sig, { commitment: 'confirmed', maxSupportedTransactionVersion: 0 });
   const ev = (await parseSettled(t?.meta?.logMessages ?? []))[0];

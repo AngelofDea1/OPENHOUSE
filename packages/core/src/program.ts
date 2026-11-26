@@ -109,6 +109,17 @@ export class OpenHouse {
       { pubkey: this.config() }, { pubkey: this.vault(), isWritable: true }, { pubkey: this.player(player), isWritable: true },
       { pubkey: this.commitment(openSeedHash), isWritable: true }, { pubkey: settler, isSigner: true, isWritable: true }]);
   }
+  playAction(player: PublicKey, signer: PublicKey, action: number) {
+    return this.ix('play_action', new W().u8(action).done(), [
+      { pubkey: this.config() }, { pubkey: this.vault(), isWritable: true }, { pubkey: this.player(player), isWritable: true },
+      { pubkey: signer, isSigner: true }]);
+  }
+  forceSettle(settler: PublicKey, caller: PublicKey, player: PublicKey, openSeedHash: Uint8Array, serverSeed: Uint8Array) {
+    return this.ix('force_settle', new W().bytes(serverSeed).done(), [
+      { pubkey: this.config() }, { pubkey: this.vault(), isWritable: true }, { pubkey: this.player(player), isWritable: true },
+      { pubkey: this.commitment(openSeedHash), isWritable: true }, { pubkey: settler, isSigner: true, isWritable: true },
+      { pubkey: caller, isSigner: true }]);
+  }
   reclaimCommitment(settler: PublicKey, seedHash: Uint8Array) {
     return this.ix('reclaim_commitment', new Uint8Array(0), [
       { pubkey: this.config() }, { pubkey: this.commitment(seedHash), isWritable: true }, { pubkey: settler, isSigner: true, isWritable: true }]);
@@ -163,12 +174,16 @@ export const decodeVault = (d: Uint8Array): VaultAcc => ({
 
 export const decodeShare = (d: Uint8Array) => ({ owner: key(d, 8), shares: u64(d, 40) });
 
-export interface OpenBetAcc { active: boolean; gameId: string; amount: bigint; maxPayout: bigint; params: Uint8Array; clientSeed: Uint8Array; serverSeedHash: Uint8Array; nonce: bigint; createdAt: bigint }
+export interface OpenBetAcc {
+  active: boolean; gameId: string; amount: bigint; maxPayout: bigint; params: Uint8Array;
+  clientSeed: Uint8Array; serverSeedHash: Uint8Array; nonce: bigint; createdAt: bigint;
+  actions: Uint8Array; actionCount: number; lastActionAt: bigint; extraStake: bigint;
+}
 export interface PlayerAcc {
   wallet: PublicKey; balance: bigint; nonce: bigint; sessionKey: PublicKey; sessionExpires: bigint; sessionMaxSpend: bigint; sessionSpent: bigint;
   dailyLossLimit: bigint; dailyLossDay: bigint; dailyLossAccumulated: bigint; pendingLimit: bigint; pendingLimitAt: bigint; excludedUntil: bigint; open: OpenBetAcc;
 }
-export const PLAYER_SIZE = 306;
+export const PLAYER_SIZE = 355;
 export function decodePlayer(d: Uint8Array): PlayerAcc {
   const g = d.slice(161, 177);
   const n = g.indexOf(0);
@@ -178,6 +193,7 @@ export function decodePlayer(d: Uint8Array): PlayerAcc {
     open: {
       active: d[160] === 1, gameId: new TextDecoder().decode(n < 0 ? g : g.slice(0, n)), amount: u64(d, 177), maxPayout: u64(d, 185),
       params: d.slice(193, 225), clientSeed: d.slice(225, 257), serverSeedHash: d.slice(257, 289), nonce: u64(d, 289), createdAt: i64(d, 297),
+      actions: d.slice(305, 337), actionCount: d[337], lastActionAt: i64(d, 338), extraStake: u64(d, 346),
     },
   };
 }

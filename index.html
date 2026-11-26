@@ -7812,7 +7812,7 @@ function derive(game,f,x){
 /* Dice, Flip, Limbo, Wheel, Plinko, Keno and Roulette are settled on chain: the settler commits a seed, you place
    the bet in your own signed transaction, the settler reveals the seed, and the program checks the result before
    paying. Other games run as practice only until they are ported. */
-const LIVE_GAMES = ['dice', 'flip', 'limbo', 'wheel', 'plinko', 'keno', 'roulette', 'hotreels', 'slots777', 'vaultbreak', 'scratch', 'sicbo', 'dragon', 'baccarat'];
+const LIVE_GAMES = ['dice', 'flip', 'limbo', 'wheel', 'plinko', 'keno', 'roulette', 'hotreels', 'slots777', 'vaultbreak', 'scratch', 'sicbo', 'dragon', 'baccarat', 'mines', 'hilo', 'towers', 'blackjack', 'poker'];
 const isLive = (g) => LIVE_GAMES.includes(g);
 const syncBalance = (wallet, delay = 900) => setTimeout(() => {
   if (!window.OH_CHAIN || st.wallet !== wallet || st.practice) return;
@@ -9255,7 +9255,7 @@ function homeInit(){
 /* ---------- real solana on-chain transactions (OpenHouse program, client built from packages/core) ---------- */
 window.OH_CHAIN = (function() {
   const CFG = window.OH_CONFIG || {};
-  const PROGRAM_ID = CFG.programId || 'Ehd64oouV9Avs6HkkkyNcw74x8WBggLHRx8EBrXnAq91';
+  const PROGRAM_ID = CFG.programId || 'Fd45hQrGoUm5LqSdzcCNA7Xa2NrHroXaVFVXDQqbzGT4';
   const RPC_URL = CFG.rpc || 'https://api.devnet.solana.com';
   const SETTLER_URL = CFG.settler || '/api';
   const LAMPORTS = 1e9;
@@ -9386,6 +9386,11 @@ window.OH_CHAIN = (function() {
     else if (game === 'sicbo') pr = E.encodeSicBo(Number(params.bet));
     else if (game === 'dragon') pr = E.encodeDragon(Number(params.bet));
     else if (game === 'baccarat') pr = E.encodeBaccarat(Number(params.bet));
+    else if (game === 'mines') pr = E.encodeMines(Number(params.mines));
+    else if (game === 'hilo') pr = E.encodeHiLo();
+    else if (game === 'towers') pr = E.encodeTowers(Number(params.difficulty));
+    else if (game === 'blackjack') pr = E.encodeBlackjack();
+    else if (game === 'poker') pr = E.encodePoker();
     else pr = E.encodeLimbo(Math.round(Number(params.target || params.cashoutAt) * 100));
     // Store for refreshMaxBet so it can compute the real max payout multiple
     window._lastEncodedParams = pr;
@@ -9397,10 +9402,11 @@ window.OH_CHAIN = (function() {
   /** One signed transaction: place the bet against a seed hash the settler already committed. */
   const placeBet = (game, amountSol, params, seedHashHex) => run(async () => {
     const E = P(); const p = need(); const me = pk(p.publicKey.toString());
-    if (!E.gameKind(game)) throw new Error('This game is not live on chain yet');
+    const isMulti = E.isMultistepGame(game);
+    if (!E.gameKind(game) && !isMulti) throw new Error('This game is not live on chain yet');
     const pr = toParams(game, params);
     const amount = lam(amountSol);
-    const maxPayout = E.winPayout(E.gameKind(game), pr, amount);
+    const maxPayout = isMulti ? E.multistepMaxPayout(game, pr, amount) : E.winPayout(E.gameKind(game), pr, amount);
     const before = await readPlayer(me.toBase58());
     if (!before) throw new Error('Deposit to your player account first');
     const clientSeed = crypto.getRandomValues(new Uint8Array(32));
@@ -9414,8 +9420,13 @@ window.OH_CHAIN = (function() {
     if (!r.ok || d.ok === false) throw new Error(d.error || 'Settler error ' + r.status);
     return d;
   }
+  const playAction = (action) => run(async () => {
+    const p = need(); const me = pk(p.publicKey.toString());
+    return send([await oh().playAction(me, me, Number(action))]);
+  });
   const nextSeed = (wallet) => settler('/seed/next', { wallet });
   const settleOpen = (wallet) => settler('/bet/settle', { wallet });
+  const forceSettle = (wallet) => settler('/bet/force-settle', { wallet });
 
   /** If a bet is left open (closed tab, settler down), settle it, or refund once the timeout has passed. */
   async function recoverOpenBet(wallet) {
@@ -9441,7 +9452,7 @@ window.OH_CHAIN = (function() {
   }
 
   return { PROGRAM_ID, VAULT_PDA, RPC_URL, SETTLER_URL, getProvider, fetchPlayerBalance, fetchVaultBalance, fetchVaultState, fetchMyShare, fetchPlayer,
-    depositPlayer, withdrawPlayer, depositVault, withdrawVault, placeBet, nextSeed, settleOpen, recoverOpenBet, setDailyLossLimit, selfExclude, history, explain: (e) => (window.OHProgram ? window.OHProgram.explainError(e) : String(e && e.message || e)) };
+    depositPlayer, withdrawPlayer, depositVault, withdrawVault, placeBet, playAction, nextSeed, settleOpen, forceSettle, recoverOpenBet, setDailyLossLimit, selfExclude, history, explain: (e) => (window.OHProgram ? window.OHProgram.explainError(e) : String(e && e.message || e)) };
 })();
 
 /* ---------- cashier (live devnet transactions enabled) ---------- */

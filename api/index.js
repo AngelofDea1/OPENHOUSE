@@ -86616,7 +86616,7 @@ var gameKind = (id) => id === "dice" ? "dice" : id === "flip" ? "flip" : id === 
 // ../../packages/core/src/program.ts
 var import_web3 = __toESM(require_index_cjs2(), 1);
 var te2 = new TextEncoder();
-var DEFAULT_PROGRAM_ID = "Ehd64oouV9Avs6HkkkyNcw74x8WBggLHRx8EBrXnAq91";
+var DEFAULT_PROGRAM_ID = "Fd45hQrGoUm5LqSdzcCNA7Xa2NrHroXaVFVXDQqbzGT4";
 var cache = /* @__PURE__ */ new Map();
 async function disc(kind, name) {
   const k = kind + ":" + name;
@@ -86774,6 +86774,24 @@ var OpenHouse = class _OpenHouse {
       { pubkey: settler, isSigner: true, isWritable: true }
     ]);
   }
+  playAction(player, signer, action) {
+    return this.ix("play_action", new W().u8(action).done(), [
+      { pubkey: this.config() },
+      { pubkey: this.vault(), isWritable: true },
+      { pubkey: this.player(player), isWritable: true },
+      { pubkey: signer, isSigner: true }
+    ]);
+  }
+  forceSettle(settler, caller, player, openSeedHash, serverSeed) {
+    return this.ix("force_settle", new W().bytes(serverSeed).done(), [
+      { pubkey: this.config() },
+      { pubkey: this.vault(), isWritable: true },
+      { pubkey: this.player(player), isWritable: true },
+      { pubkey: this.commitment(openSeedHash), isWritable: true },
+      { pubkey: settler, isSigner: true, isWritable: true },
+      { pubkey: caller, isSigner: true }
+    ]);
+  }
   reclaimCommitment(settler, seedHash) {
     return this.ix("reclaim_commitment", new Uint8Array(0), [
       { pubkey: this.config() },
@@ -86854,7 +86872,11 @@ function decodePlayer(d) {
       clientSeed: d.slice(225, 257),
       serverSeedHash: d.slice(257, 289),
       nonce: u64(d, 289),
-      createdAt: i64(d, 297)
+      createdAt: i64(d, 297),
+      actions: d.slice(305, 337),
+      actionCount: d[337],
+      lastActionAt: i64(d, 338),
+      extraStake: u64(d, 346)
     }
   };
 }
@@ -86910,7 +86932,11 @@ var ERROR_MESSAGES = [
   "Your account is currently on a self-exclusion break",
   "House deposits are temporarily closed",
   "Bet amount is too small",
-  "Cannot reclaim that yet, please wait a moment"
+  "Cannot reclaim that yet, please wait a moment",
+  "Round is not finished yet",
+  "Invalid action for this game",
+  "Force settle timeout not reached yet",
+  "Action log is full (max 32 actions)"
 ];
 function explainError(e) {
   const text = String(e?.message ?? e ?? "");
@@ -86930,6 +86956,11 @@ function explainError(e) {
   if (/429|too many requests|rate limit/i.test(hay)) return "Network is busy right now, please try again in a moment";
   if (/[{}\[\]]|0x[0-9a-f]{6,}|Error:|Simulation failed/i.test(text)) return "Something went wrong. Please try again";
   return text.length > 0 && text.length <= 100 ? text : "Something went wrong. Please try again";
+}
+
+// ../../packages/core/src/multistep.ts
+function isMultistepGame(id) {
+  return id === "mines" || id === "hilo" || id === "towers" || id === "blackjack" || id === "poker";
 }
 
 // src/index.ts
@@ -87037,14 +87068,50 @@ app.post(["/bet/settle", "/api/bet/settle"], wrap(async (req, res) => {
   const o = p.open;
   if (!o.active) return fail(res, 409, "There is no open bet");
   const kind = gameKind(o.gameId);
-  if (!kind) return fail(res, 501, "This game is not verified on chain yet, so it cannot be settled here");
+  const isMulti = isMultistepGame(o.gameId);
+  if (!kind && !isMulti) return fail(res, 501, "This game is not verified on chain yet, so it cannot be settled here");
   const cAcc = await conn.getAccountInfo(oh.commitment(o.serverSeedHash));
   if (!cAcc) return fail(res, 409, "Seed commitment is missing, use refund after two minutes");
   const c = decodeCommitment(cAcc.data);
   const seed = seedFor(c.index);
   if (hex(sha(seed)) !== hex(o.serverSeedHash)) return fail(res, 500, "Seed derivation mismatch, check SEED_MASTER_SECRET");
   const ix = await oh.settleBet(secrets.kp.publicKey, wallet, o.serverSeedHash, seed, 0n);
-  const tx = new import_web32.Transaction().add(import_web32.ComputeBudgetProgram.setComputeUnitLimit({ units: 2e5 }), ix);
+  const tx = new import_web32.Transaction().add(import_web32.ComputeBudgetProgram.setComputeUnitLimit({ units: isMulti ? 4e5 : 2e5 }), ix);
+  const sig = await (0, import_web32.sendAndConfirmTransaction)(conn, tx, [secrets.kp], { commitment: "confirmed" });
+  const t = await conn.getTransaction(sig, { commitment: "confirmed", maxSupportedTransactionVersion: 0 });
+  const ev = (await parseSettled(t?.meta?.logMessages ?? []))[0];
+  res.json({
+    ok: true,
+    tx: sig,
+    game: o.gameId,
+    amount: o.amount.toString(),
+    nonce: o.nonce.toString(),
+    payout: ev ? ev.payout.toString() : null,
+    win: ev ? ev.payout > 0n : null,
+    serverSeed: hex(seed),
+    serverSeedHash: hex(o.serverSeedHash),
+    clientSeed: hex(o.clientSeed),
+    params: hex(o.params),
+    verifiedOnChain: ev?.verifiedOnChain ?? true
+  });
+}));
+app.post(["/bet/force-settle", "/api/bet/force-settle"], wrap(async (req, res) => {
+  const wallet = pk(req.body?.wallet);
+  if (!wallet) return fail(res, 400, "wallet is required");
+  if (limited("fs:" + wallet.toBase58(), 10, 6e4)) return fail(res, 429, "Too many requests, slow down");
+  const plAcc = await conn.getAccountInfo(oh.player(wallet));
+  if (!plAcc) return fail(res, 404, "No player account");
+  const p = decodePlayer(plAcc.data);
+  const o = p.open;
+  if (!o.active) return fail(res, 409, "There is no open bet");
+  if (!isMultistepGame(o.gameId)) return fail(res, 400, "Not a multi-step game");
+  const cAcc = await conn.getAccountInfo(oh.commitment(o.serverSeedHash));
+  if (!cAcc) return fail(res, 409, "Seed commitment is missing");
+  const c = decodeCommitment(cAcc.data);
+  const seed = seedFor(c.index);
+  if (hex(sha(seed)) !== hex(o.serverSeedHash)) return fail(res, 500, "Seed derivation mismatch, check SEED_MASTER_SECRET");
+  const ix = await oh.forceSettle(secrets.kp.publicKey, secrets.kp.publicKey, wallet, o.serverSeedHash, seed);
+  const tx = new import_web32.Transaction().add(import_web32.ComputeBudgetProgram.setComputeUnitLimit({ units: 4e5 }), ix);
   const sig = await (0, import_web32.sendAndConfirmTransaction)(conn, tx, [secrets.kp], { commitment: "confirmed" });
   const t = await conn.getTransaction(sig, { commitment: "confirmed", maxSupportedTransactionVersion: 0 });
   const ev = (await parseSettled(t?.meta?.logMessages ?? []))[0];
