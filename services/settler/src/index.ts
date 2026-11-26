@@ -164,7 +164,8 @@ function isAuthorizedCron(authHeader: string | undefined): boolean {
   }
   return false;
 }
-app.post(['/admin/sweep', '/api/admin/sweep'], wrap(async (req, res) => {
+app.all(['/admin/sweep', '/api/admin/sweep'], wrap(async (req, res) => {
+  if (req.method !== 'GET' && req.method !== 'POST') return fail(res, 405, 'Method not allowed');
   if (!isAuthorizedCron(req.headers.authorization)) return fail(res, 401, 'Not allowed');
   const accs = await conn.getProgramAccounts(oh.programId, { filters: [{ dataSize: 90 }] });
   const now = Math.floor(Date.now() / 1000);

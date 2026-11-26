@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { decodePlayer, PLAYER_SIZE } from '../src/program.js';
 
 function maxBetLamports(vault: { totalDeposited: bigint; reserved: bigint }, cfg: { kBps: number; paused: boolean }, maxPayoutX100: number): bigint {
   if (!vault || !cfg || cfg.paused) return 0n;
@@ -37,4 +38,41 @@ test('mapHistoryRow maps settler bet payload', () => {
   assert.equal(row.n, 7);
   assert.equal(row.placeTx, 'tx1');
   assert.equal(row.settleTx, 'tx2');
+});
+
+test('decodePlayer decodes a PLAYER_SIZE (306) byte buffer', () => {
+  assert.equal(PLAYER_SIZE, 306);
+  const buf = new Uint8Array(PLAYER_SIZE);
+  const p = decodePlayer(buf);
+  assert.equal(p.balance, 0n);
+  assert.equal(p.nonce, 0n);
+  assert.equal(p.open.active, false);
+});
+
+test('maxBetLamports table for all 14 live games (50 SOL free, k=100 bps)', () => {
+  const vault = { totalDeposited: 50_000_000_000n, reserved: 0n };
+  const cfg = { kBps: 100, paused: false };
+  const games = [
+    ['Dice (49.5%)', 200],
+    ['Flip', 198],
+    ['Limbo (2x)', 200],
+    ['Wheel (high)', 1500],
+    ['Plinko (16 high)', 100000],
+    ['Keno (10 picks)', 100000],
+    ['Roulette (straight)', 3600],
+    ['Hot Reels', 27500],
+    ['Slots 777', 50000],
+    ['Vault Break', 65000],
+    ['Scratch', 20000],
+    ['Sic Bo', 1200],
+    ['Dragon Tiger', 1280],
+    ['Baccarat', 900],
+  ] as const;
+  console.log('\n| Game | Max Payout x | Max Bet (SOL) |');
+  console.log('|---|---|---|');
+  for (const [name, multX100] of games) {
+    const lam = maxBetLamports(vault, cfg, multX100);
+    assert.ok(lam > 0n);
+    console.log(`| ${name} | ${(multX100 / 100).toFixed(2)}x | ${(Number(lam) / 1e9).toFixed(4)} |`);
+  }
 });

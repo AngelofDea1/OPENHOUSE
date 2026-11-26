@@ -2103,19 +2103,6 @@ input[type=number] {
           <a class="btn sm" id="w_ex" target="_blank" rel="noopener">View on explorer</a>
         </div>
       </div>
-      <div class="panel">
-        <h2>Session key</h2>
-        <p>A temporary key lets you place bets without signing every one. It can only bet, never withdraw, and it expires</p>
-        <div class="line">
-          <div><h3>Session key</h3><p id="w_sk">Off</p></div>
-          <label class="sw"><input type="checkbox" id="w_st" aria-label="Session key"><i></i></label>
-        </div>
-        <div class="f">
-          <div><label for="w_sx">Expires after</label><select id="w_sx"><option value="1">1 hour</option><option value="8" selected>8 hours</option><option value="24">24 hours</option></select></div>
-          <div><label for="w_sm">Max total it can bet (SOL)</label><input id="w_sm" type="number" min="0" step="0.1" value="5"></div>
-        </div>
-        <p class="note">Session keys allow continuous betting within your pre-authorized balance without wallet signing popups.</p>
-      </div>
       <div class="panel c">
         <div class="row" style="margin:0">
           <a class="btn p" href="#cashier">Deposit or withdraw</a>
@@ -7383,6 +7370,34 @@ function initVaultAccountView() {
     if (sa) sa.textContent = (tot + (vaMode === 'd' ? a : -a) > 0 ? (nd / (tot + (vaMode === 'd' ? a : -a)) * 100) : 0).toFixed(2) + '%';
     if (ac) {
       ac.innerHTML = s.log.length ? s.log.slice().reverse().map(l => `<tr><td>${new Date(l.t).toLocaleString()}</td><td>${l.k}</td><td class="r">${fmtNumber(l.a)}</td></tr>`).join('') : '<tr><td colspan="3" class="dn">No activity yet</td></tr>';
+    }
+    let dash = $('#va_chain_dash');
+    if (!dash && ac && ac.closest('.panel')) {
+      dash = document.createElement('div');
+      dash.id = 'va_chain_dash';
+      dash.className = 'panel c';
+      ac.closest('.panel').after(dash);
+    }
+    if (dash) {
+      const vs = window._lastVaultState || { total: tot, reserved: 0, free: tot, fees: 0, shares: 0n, kBps: 100, paused: false };
+      const sp = vs.shares > 0n ? (vs.total / (Number(vs.shares) / 1e9)) : 1;
+      const netPnl = vs.total - (vs.shares > 0n ? Number(vs.shares) / 1e9 : vs.total);
+      const GAME_SPECS = [
+        ['dice','Dice',200,'99.00%'],['flip','Flip',198,'99.00%'],['limbo','Limbo',200,'99.00%'],
+        ['wheel','Wheel',1500,'99.00%'],['plinko','Plinko',100000,'99.00%'],['keno','Keno',100000,'99.00%'],
+        ['roulette','Roulette',3600,'97.30%'],['hotreels','Hot Reels',27500,'99.00%'],['slots777','Slots 777',50000,'99.00%'],
+        ['vaultbreak','Vault Break',65000,'99.00%'],['scratch','Scratch',20000,'99.00%'],['sicbo','Sic Bo',1200,'99.00%'],
+        ['dragon','Dragon Tiger',1280,'99.00%'],['baccarat','Baccarat',900,'99.00%']
+      ];
+      const vObj = { totalDeposited: BigInt(Math.round(vs.total * 1e9)), reserved: BigInt(Math.round(vs.reserved * 1e9)) };
+      const cObj = { kBps: vs.kBps || 100, paused: !!vs.paused };
+      const rows = GAME_SPECS.map(([id, name, mx, rtp]) => {
+        const mb = typeof maxBetLamports === 'function' ? Number(maxBetLamports(vObj, cObj, mx)) / 1e9 : 0;
+        return `<tr><td>${name}</td><td class="r">${(mx/100).toFixed(2)}x</td><td class="r">${mb.toFixed(4)} SOL</td><td class="r">${rtp}</td></tr>`;
+      }).join('');
+      dash.innerHTML = `<h2>On-Chain Vault Dashboard</h2>
+        <p class="note">Total deposited: <b>${fmtNumber(vs.total,4)} SOL</b> · Reserved: <b>${fmtNumber(vs.reserved,4)} SOL</b> · Free: <b>${fmtNumber(vs.free,4)} SOL</b> · Accrued fees: <b>${fmtNumber(vs.fees,4)} SOL</b> · Net result: <b>${netPnl>=0?'+':''}${fmtNumber(netPnl,4)} SOL</b> · Share price: <b>${sp.toFixed(6)} SOL</b></p>
+        <table><thead><tr><th>Live Game</th><th class="r">Max Payout</th><th class="r">Max Bet Now</th><th class="r">Theoretical RTP</th></tr></thead><tbody>${rows}</tbody></table>`;
     }
   }
   function setTab(m) {

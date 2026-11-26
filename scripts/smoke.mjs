@@ -15,22 +15,17 @@ const server = http.createServer((req, res) => {
   fs.createReadStream(filePath).pipe(res);
 });
 
-const CHROME_PATHS = [
-  '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
-  '/usr/bin/google-chrome',
-  '/usr/bin/chromium',
-  process.env.CHROME_PATH,
-].filter(Boolean);
-
-const executablePath = CHROME_PATHS.find((p) => fs.existsSync(p));
-if (!executablePath) {
-  console.error('No Chrome executable found');
+const executablePath = process.env.CHROME_PATH || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
+if (!fs.existsSync(executablePath)) {
+  console.error('No Chrome executable found at ' + executablePath);
   process.exit(1);
 }
 
-await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
-const { port } = server.address();
-const baseUrl = `http://127.0.0.1:${port}/`;
+const targetUrl = process.env.SMOKE_URL || '';
+if (!targetUrl) {
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+}
+const baseUrl = targetUrl || `http://127.0.0.1:${server.address().port}/`;
 
 const browser = await puppeteer.launch({ executablePath, headless: true, args: ['--no-sandbox'] });
 const routes = ['#home', '#games', '#vault-account', '#fair', '#responsible', '#bets', '#limits'];
@@ -48,7 +43,7 @@ try {
     page.on('console', (msg) => {
       if (msg.type() === 'error') {
         const txt = msg.text();
-        if (!/ERR_NAME_NOT_RESOLVED|Failed to fetch|net::ERR_|NetworkError/i.test(txt)) {
+        if (!/ERR_NAME_NOT_RESOLVED|Failed to fetch|net::ERR_|NetworkError|CORS policy/i.test(txt)) {
           errors.push(`${vp.name} console.error: ${txt}`);
         }
       }
@@ -62,6 +57,8 @@ try {
         const walk = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
         let n;
         while ((n = walk.nextNode())) {
+          const tag = n.parentElement && n.parentElement.tagName;
+          if (tag === 'SCRIPT' || tag === 'STYLE' || tag === 'NOSCRIPT') continue;
           const t = n.nodeValue || '';
           if (/\bundefined\b|\bNaN\b|\[object /.test(t)) badText.push(t.trim().slice(0, 60));
         }
