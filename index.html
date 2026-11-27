@@ -9964,28 +9964,21 @@ window.OH_CHAIN = (function() {
 
 /* ---------- cashier (live devnet transactions enabled) ---------- */
 (function(){
-let SOLUSD=185; /* Updated live from Pyth on-chain oracle / CoinGecko */
+let SOLUSD=185,SOLUSD_APPROX=true; /* Updated from /api/price/sol */
 (async function syncLiveSolPrice(){
   try {
-    const pr = await fetch('https://hermes.pyth.network/v2/updates/price/latest?ids[]=ef0d8b6fda2ceba41da15d4095d1da392a0d2f8ed0c6c7bc0f4cfac8c280b56d');
+    const pr = await fetch('/api/price/sol');
     if (pr.ok) {
       const pd = await pr.json();
-      const p = pd && pd.parsed && pd.parsed[0] && pd.parsed[0].price;
-      if (p && p.price) {
-        SOLUSD = +(Number(p.price) * Math.pow(10, p.expo)).toFixed(2);
+      if (pd && pd.usd > 0) {
+        SOLUSD = +Number(pd.usd).toFixed(2);
+        SOLUSD_APPROX = false;
         if (typeof CRY !== 'undefined' && CRY.SOL) CRY.SOL.usd = SOLUSD;
         return;
       }
     }
   } catch(_) {}
-  try {
-    const cr = await fetch('https://api.coingecko.com/api/v3/simple/price?ids=solana&vs_currencies=usd');
-    const cd = await cr.json();
-    if (cd && cd.solana && cd.solana.usd) {
-      SOLUSD = cd.solana.usd;
-      if (typeof CRY !== 'undefined' && CRY.SOL) CRY.SOL.usd = SOLUSD;
-    }
-  } catch(_) {}
+  SOLUSD_APPROX = true;
 })();
 const CRY={SOL:{n:'Solana',dec:4,usd:SOLUSD,net:'Solana Devnet'},USDC:{n:'USD Coin',dec:2,usd:1,net:'Solana (SPL)'},USDT:{n:'Tether',dec:2,usd:1,net:'Solana (SPL)'}};
 const VAULT_ADDR='CA2YwZaB3Ejvx8tuCfayGPctnRnJFGLScBKLTxGpWxDM';

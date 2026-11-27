@@ -38134,12 +38134,12 @@ var require_lib6 = __commonJS({
       const dest = new URL$1(destination).protocol;
       return orig === dest;
     };
-    function fetch(url, opts) {
-      if (!fetch.Promise) {
+    function fetch2(url, opts) {
+      if (!fetch2.Promise) {
         throw new Error("native promise missing, set fetch.Promise to your favorite alternative");
       }
-      Body.Promise = fetch.Promise;
-      return new fetch.Promise(function(resolve2, reject) {
+      Body.Promise = fetch2.Promise;
+      return new fetch2.Promise(function(resolve2, reject) {
         const request = new Request(url, opts);
         const options = getNodeRequestOptions(request);
         const send = (options.protocol === "https:" ? https : http).request;
@@ -38210,7 +38210,7 @@ var require_lib6 = __commonJS({
         req.on("response", function(res) {
           clearTimeout(reqTimeout);
           const headers = createHeadersLenient(res.headers);
-          if (fetch.isRedirect(res.statusCode)) {
+          if (fetch2.isRedirect(res.statusCode)) {
             const location = headers.get("Location");
             let locationURL = null;
             try {
@@ -38272,7 +38272,7 @@ var require_lib6 = __commonJS({
                   requestOpts.body = void 0;
                   requestOpts.headers.delete("content-length");
                 }
-                resolve2(fetch(new Request(locationURL, requestOpts)));
+                resolve2(fetch2(new Request(locationURL, requestOpts)));
                 finalize();
                 return;
             }
@@ -38364,11 +38364,11 @@ var require_lib6 = __commonJS({
         stream.end();
       }
     }
-    fetch.isRedirect = function(code) {
+    fetch2.isRedirect = function(code) {
       return code === 301 || code === 302 || code === 303 || code === 307 || code === 308;
     };
-    fetch.Promise = global.Promise;
-    module2.exports = exports2 = fetch;
+    fetch2.Promise = global.Promise;
+    module2.exports = exports2 = fetch2;
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.default = exports2;
     exports2.Headers = Headers;
@@ -49713,7 +49713,7 @@ Message: ${transactionMessage}.
       })
     }));
     function createRpcClient(url, httpHeaders, customFetch, fetchMiddleware, disableRetryOnRateLimit, httpAgent) {
-      const fetch = customFetch ? customFetch : fetchImpl;
+      const fetch2 = customFetch ? customFetch : fetchImpl;
       let agent2;
       {
         if (httpAgent == null) {
@@ -49753,7 +49753,7 @@ Message: ${transactionMessage}.
               reject(error);
             }
           });
-          return await fetch(...modifiedFetchArgs);
+          return await fetch2(...modifiedFetchArgs);
         };
       }
       const clientBrowser = new RpcClient__default.default(async (request, callback) => {
@@ -49773,7 +49773,7 @@ Message: ${transactionMessage}.
             if (fetchWithMiddleware) {
               res = await fetchWithMiddleware(url, options);
             } else {
-              res = await fetch(url, options);
+              res = await fetch2(url, options);
             }
             if (res.status !== 429) {
               break;
@@ -50346,7 +50346,7 @@ Message: ${transactionMessage}.
         })();
         let wsEndpoint;
         let httpHeaders;
-        let fetch;
+        let fetch2;
         let fetchMiddleware;
         let disableRetryOnRateLimit;
         let httpAgent;
@@ -50357,14 +50357,14 @@ Message: ${transactionMessage}.
           this._confirmTransactionInitialTimeout = _commitmentOrConfig.confirmTransactionInitialTimeout;
           wsEndpoint = _commitmentOrConfig.wsEndpoint;
           httpHeaders = _commitmentOrConfig.httpHeaders;
-          fetch = _commitmentOrConfig.fetch;
+          fetch2 = _commitmentOrConfig.fetch;
           fetchMiddleware = _commitmentOrConfig.fetchMiddleware;
           disableRetryOnRateLimit = _commitmentOrConfig.disableRetryOnRateLimit;
           httpAgent = _commitmentOrConfig.httpAgent;
         }
         this._rpcEndpoint = assertEndpointUrl(endpoint2);
         this._rpcWsEndpoint = wsEndpoint || makeWebsocketUrl(endpoint2);
-        this._rpcClient = createRpcClient(endpoint2, httpHeaders, fetch, fetchMiddleware, disableRetryOnRateLimit, httpAgent);
+        this._rpcClient = createRpcClient(endpoint2, httpHeaders, fetch2, fetchMiddleware, disableRetryOnRateLimit, httpAgent);
         this._rpcRequest = createRpcRequest(this._rpcClient);
         this._rpcBatchRequest = createRpcBatchRequest(this._rpcClient);
         this._rpcWebSocket = new RpcWebSocketClient(this._rpcWsEndpoint, {
@@ -69693,12 +69693,12 @@ var require_lib9 = __commonJS({
       const dest = new URL$1(destination).protocol;
       return orig === dest;
     };
-    function fetch(url, opts) {
-      if (!fetch.Promise) {
+    function fetch2(url, opts) {
+      if (!fetch2.Promise) {
         throw new Error("native promise missing, set fetch.Promise to your favorite alternative");
       }
-      Body.Promise = fetch.Promise;
-      return new fetch.Promise(function(resolve2, reject) {
+      Body.Promise = fetch2.Promise;
+      return new fetch2.Promise(function(resolve2, reject) {
         const request = new Request(url, opts);
         const options = getNodeRequestOptions(request);
         const send = (options.protocol === "https:" ? https : http).request;
@@ -69769,7 +69769,7 @@ var require_lib9 = __commonJS({
         req.on("response", function(res) {
           clearTimeout(reqTimeout);
           const headers = createHeadersLenient(res.headers);
-          if (fetch.isRedirect(res.statusCode)) {
+          if (fetch2.isRedirect(res.statusCode)) {
             const location = headers.get("Location");
             let locationURL = null;
             try {
@@ -69831,7 +69831,7 @@ var require_lib9 = __commonJS({
                   requestOpts.body = void 0;
                   requestOpts.headers.delete("content-length");
                 }
-                resolve2(fetch(new Request(locationURL, requestOpts)));
+                resolve2(fetch2(new Request(locationURL, requestOpts)));
                 finalize();
                 return;
             }
@@ -69923,11 +69923,11 @@ var require_lib9 = __commonJS({
         stream.end();
       }
     }
-    fetch.isRedirect = function(code) {
+    fetch2.isRedirect = function(code) {
       return code === 301 || code === 302 || code === 303 || code === 307 || code === 308;
     };
-    fetch.Promise = global.Promise;
-    module2.exports = exports2 = fetch;
+    fetch2.Promise = global.Promise;
+    module2.exports = exports2 = fetch2;
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.default = exports2;
     exports2.Headers = Headers;
@@ -81272,7 +81272,7 @@ Message: ${transactionMessage}.
       })
     }));
     function createRpcClient(url, httpHeaders, customFetch, fetchMiddleware, disableRetryOnRateLimit, httpAgent) {
-      const fetch = customFetch ? customFetch : fetchImpl;
+      const fetch2 = customFetch ? customFetch : fetchImpl;
       let agent2;
       {
         if (httpAgent == null) {
@@ -81312,7 +81312,7 @@ Message: ${transactionMessage}.
               reject(error);
             }
           });
-          return await fetch(...modifiedFetchArgs);
+          return await fetch2(...modifiedFetchArgs);
         };
       }
       const clientBrowser = new RpcClient__default.default(async (request, callback) => {
@@ -81332,7 +81332,7 @@ Message: ${transactionMessage}.
             if (fetchWithMiddleware) {
               res = await fetchWithMiddleware(url, options);
             } else {
-              res = await fetch(url, options);
+              res = await fetch2(url, options);
             }
             if (res.status !== 429) {
               break;
@@ -81905,7 +81905,7 @@ Message: ${transactionMessage}.
         })();
         let wsEndpoint;
         let httpHeaders;
-        let fetch;
+        let fetch2;
         let fetchMiddleware;
         let disableRetryOnRateLimit;
         let httpAgent;
@@ -81916,14 +81916,14 @@ Message: ${transactionMessage}.
           this._confirmTransactionInitialTimeout = _commitmentOrConfig.confirmTransactionInitialTimeout;
           wsEndpoint = _commitmentOrConfig.wsEndpoint;
           httpHeaders = _commitmentOrConfig.httpHeaders;
-          fetch = _commitmentOrConfig.fetch;
+          fetch2 = _commitmentOrConfig.fetch;
           fetchMiddleware = _commitmentOrConfig.fetchMiddleware;
           disableRetryOnRateLimit = _commitmentOrConfig.disableRetryOnRateLimit;
           httpAgent = _commitmentOrConfig.httpAgent;
         }
         this._rpcEndpoint = assertEndpointUrl(endpoint2);
         this._rpcWsEndpoint = wsEndpoint || makeWebsocketUrl(endpoint2);
-        this._rpcClient = createRpcClient(endpoint2, httpHeaders, fetch, fetchMiddleware, disableRetryOnRateLimit, httpAgent);
+        this._rpcClient = createRpcClient(endpoint2, httpHeaders, fetch2, fetchMiddleware, disableRetryOnRateLimit, httpAgent);
         this._rpcRequest = createRpcRequest(this._rpcClient);
         this._rpcBatchRequest = createRpcBatchRequest(this._rpcClient);
         this._rpcWebSocket = new RpcWebSocketClient(this._rpcWsEndpoint, {
@@ -87950,6 +87950,38 @@ app.get(["/feed", "/api/feed"], wrap(async (req, res) => {
   }
   _feedCache = { events, at: Date.now() };
   res.json({ ok: true, events: events.slice(0, limit) });
+}));
+var _solPriceCache = null;
+app.get(["/price/sol", "/api/price/sol"], wrap(async (_req, res) => {
+  if (_solPriceCache && Date.now() - _solPriceCache.at < 6e4) {
+    return res.json(_solPriceCache);
+  }
+  try {
+    const pr = await fetch("https://hermes.pyth.network/v2/updates/price/latest?ids[]=ef0d8b6fda2ceba41da15d4095d1da392a0d2f8ed0c6c7bc0f4cfac8c280b56d");
+    if (pr.ok) {
+      const pd = await pr.json();
+      const p = pd?.parsed?.[0]?.price;
+      if (p?.price) {
+        const usd = +(Number(p.price) * Math.pow(10, p.expo)).toFixed(2);
+        _solPriceCache = { usd, source: "pyth", at: Date.now() };
+        return res.json(_solPriceCache);
+      }
+    }
+  } catch {
+  }
+  try {
+    const cg = await fetch("https://api.coingecko.com/api/v3/simple/price?ids=solana&vs_currencies=usd");
+    if (cg.ok) {
+      const cd = await cg.json();
+      const usd = Number(cd?.solana?.usd);
+      if (usd > 0) {
+        _solPriceCache = { usd: +usd.toFixed(2), source: "coingecko", at: Date.now() };
+        return res.json(_solPriceCache);
+      }
+    }
+  } catch {
+  }
+  return fail(res, 503, "Unable to fetch SOL price from Pyth or CoinGecko");
 }));
 var sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 function computeRunningMult(game, params, outcome, amount) {

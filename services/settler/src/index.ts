@@ -298,6 +298,37 @@ app.get(['/feed', '/api/feed'], wrap(async (req, res) => {
   res.json({ ok: true, events: events.slice(0, limit) });
 }));
 
+let _solPriceCache: { usd: number; source: string; at: number } | null = null;
+app.get(['/price/sol', '/api/price/sol'], wrap(async (_req, res) => {
+  if (_solPriceCache && Date.now() - _solPriceCache.at < 60_000) {
+    return res.json(_solPriceCache);
+  }
+  try {
+    const pr = await fetch('https://hermes.pyth.network/v2/updates/price/latest?ids[]=ef0d8b6fda2ceba41da15d4095d1da392a0d2f8ed0c6c7bc0f4cfac8c280b56d');
+    if (pr.ok) {
+      const pd: any = await pr.json();
+      const p = pd?.parsed?.[0]?.price;
+      if (p?.price) {
+        const usd = +(Number(p.price) * Math.pow(10, p.expo)).toFixed(2);
+        _solPriceCache = { usd, source: 'pyth', at: Date.now() };
+        return res.json(_solPriceCache);
+      }
+    }
+  } catch {}
+  try {
+    const cg = await fetch('https://api.coingecko.com/api/v3/simple/price?ids=solana&vs_currencies=usd');
+    if (cg.ok) {
+      const cd: any = await cg.json();
+      const usd = Number(cd?.solana?.usd);
+      if (usd > 0) {
+        _solPriceCache = { usd: +usd.toFixed(2), source: 'coingecko', at: Date.now() };
+        return res.json(_solPriceCache);
+      }
+    }
+  } catch {}
+  return fail(res, 503, 'Unable to fetch SOL price from Pyth or CoinGecko');
+}));
+
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 function computeRunningMult(game: string, params: Uint8Array, outcome: Awaited<ReturnType<typeof replay>>, amount: bigint): number {
