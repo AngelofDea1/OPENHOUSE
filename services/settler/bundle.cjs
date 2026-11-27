@@ -87898,6 +87898,59 @@ app.get(["/bets", "/api/bets"], wrap(async (req, res) => {
   }
   res.json({ ok: true, bets: out });
 }));
+var BASE58_SIG_RE = /^[1-9A-HJ-NP-Za-km-z]{64,88}$/;
+async function getTxWithRetry(sig) {
+  try {
+    return await conn.getTransaction(sig, { commitment: "confirmed", maxSupportedTransactionVersion: 0 });
+  } catch (e) {
+    if (String(e?.message || e).includes("429")) {
+      await sleep(700);
+      return await conn.getTransaction(sig, { commitment: "confirmed", maxSupportedTransactionVersion: 0 });
+    }
+    throw e;
+  }
+}
+app.get(["/rpc/tx", "/api/rpc/tx"], wrap(async (req, res) => {
+  const sig = String(req.query.sig || "").trim();
+  if (!BASE58_SIG_RE.test(sig)) return fail(res, 400, "Invalid base58 signature");
+  if (limited("rpc_tx:" + (req.ip || "anon"), 30, 6e4)) return fail(res, 429, "Too many requests");
+  const t = await getTxWithRetry(sig);
+  if (!t) return fail(res, 404, "Transaction not found");
+  res.json({ ok: true, logMessages: t.meta?.logMessages ?? [], blockTime: t.blockTime ?? null, err: t.meta?.err ?? null });
+}));
+var _feedCache = null;
+app.get(["/feed", "/api/feed"], wrap(async (req, res) => {
+  if (limited("feed:" + (req.ip || "anon"), 30, 6e4)) return fail(res, 429, "Too many requests");
+  const limit = Math.min(40, Math.max(1, parseInt(String(req.query.limit || "30"), 10) || 30));
+  if (_feedCache && Date.now() - _feedCache.at < 2e4) {
+    return res.json({ ok: true, events: _feedCache.events.slice(0, limit), cached: true });
+  }
+  const sigs = await conn.getSignaturesForAddress(oh.vault(), { limit });
+  const okSigs = sigs.filter((s) => !s.err);
+  const events = [];
+  for (let i = 0; i < okSigs.length; i += 5) {
+    const batch = okSigs.slice(i, i + 5);
+    const txs = await Promise.all(batch.map((s) => getTxWithRetry(s.signature).catch(() => null)));
+    for (let j = 0; j < batch.length; j++) {
+      const t = txs[j];
+      const logs = t?.meta?.logMessages;
+      if (!logs) continue;
+      for (const e of await parseSettled(logs)) {
+        events.push({
+          tx: batch[j].signature,
+          blockTime: batch[j].blockTime || t.blockTime || 0,
+          gameId: e.gameId,
+          player: e.player,
+          amount: e.amount.toString(),
+          payout: e.payout.toString(),
+          nonce: e.nonce.toString()
+        });
+      }
+    }
+  }
+  _feedCache = { events, at: Date.now() };
+  res.json({ ok: true, events: events.slice(0, limit) });
+}));
 var sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 function computeRunningMult(game, params, outcome, amount) {
   if (outcome.payout > 0n && amount > 0n) {

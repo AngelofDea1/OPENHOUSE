@@ -10273,6 +10273,18 @@ function _saveFeedCache(events){
 }
 async function fetchRecentSettledEvents(force){
   if(!force){const c=_loadFeedCache();if(c)return c;}
+  try{
+    const r=await fetch('/api/feed?limit=30');
+    if(r.ok){
+      const j=await r.json();
+      if(j&&j.ok&&Array.isArray(j.events)){
+        const events=j.events.map(e=>({...e,playerStr:e.player,amount:BigInt(e.amount),payout:BigInt(e.payout),nonce:BigInt(e.nonce)}));
+        _liveFeedCache={events,error:null};_liveFeedAt=Date.now();
+        _saveFeedCache(events);
+        return _liveFeedCache;
+      }
+    }
+  }catch(_){}
   const P=window.OHProgram,C=window.OH_CONFIG,H=window.OH_CHAIN;
   if(!P||!C||!window.solanaWeb3)return _liveFeedCache||{events:[],error:'unavailable'};
   try{
@@ -10414,9 +10426,16 @@ function wireExtraFairAndRg(){
       if(!P||!C||!window.solanaWeb3){vTxOut.textContent='unavailable';return;}
       vTxOut.textContent='Fetching transaction…';
       try{
-        const conn=new window.solanaWeb3.Connection(C.rpc,'confirmed');
-        const tx=await conn.getTransaction(sig,{maxSupportedTransactionVersion:0});
-        const logs=tx&&tx.meta&&tx.meta.logMessages;
+        let logs=null;
+        try{
+          const r=await fetch('/api/rpc/tx?sig='+encodeURIComponent(sig));
+          if(r.ok){const j=await r.json();if(j&&j.ok&&Array.isArray(j.logMessages))logs=j.logMessages;}
+        }catch(_){}
+        if(!logs){
+          const conn=new window.solanaWeb3.Connection(C.rpc,'confirmed');
+          const tx=await conn.getTransaction(sig,{maxSupportedTransactionVersion:0});
+          logs=tx&&tx.meta&&tx.meta.logMessages;
+        }
         if(!logs){vTxOut.textContent='Transaction or logs not found';return;}
         const evs=await P.parseSettled(logs);
         const ev=evs&&evs[0];
