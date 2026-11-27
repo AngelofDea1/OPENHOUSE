@@ -1,0 +1,8 @@
+target/
+node_modules/
+packages/core/node_modules/
+packages/core/dist/
+services/settler/node_modules/
+app/node_modules/
+.cargo/
+openhouse-v2.zip

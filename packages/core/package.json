@@ -1,0 +1,18 @@
+{
+  "name": "@openhouse/core",
+  "version": "0.2.0",
+  "private": true,
+  "type": "module",
+  "main": "src/index.ts",
+  "scripts": {
+    "test": "tsx --test test/*.test.ts",
+    "typecheck": "tsc --noEmit",
+    "build:browser": "node build-browser.mjs && node vendor.mjs",
+    "vendor": "node build-browser.mjs && node vendor.mjs",
+    "init": "tsx scripts/init-cluster.mjs",
+    "preflight": "tsx scripts/preflight.mjs",
+    "monitor": "tsx scripts/monitor.mjs"
+  },
+  "dependencies": { "@solana/web3.js": "^1.95.8" },
+  "devDependencies": { "esbuild": "^0.21.5", "tsx": "^4.16.2", "typescript": "^5.4.5", "@types/node": "^20.14.0" }
+}

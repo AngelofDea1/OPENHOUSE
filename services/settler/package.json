@@ -1,0 +1,24 @@
+{
+  "name": "openhouse-settler",
+  "version": "2.0.0",
+  "private": true,
+  "description": "OpenHouse settler: commits seeds and settles bets. Stateless, holds no player funds.",
+  "main": "bundle.cjs",
+  "scripts": {
+    "build": "esbuild src/index.ts --bundle --platform=node --target=node20 --outfile=bundle.cjs --footer:js=\"if(module.exports&&module.exports.default){const d=module.exports.default;module.exports=d;module.exports.default=d;}\"",
+    "start": "node bundle.cjs",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@solana/web3.js": "^1.95.8",
+    "cors": "^2.8.5",
+    "express": "^4.19.2"
+  },
+  "devDependencies": {
+    "@types/cors": "^2.8.17",
+    "@types/express": "^4.17.21",
+    "@types/node": "^20.14.0",
+    "esbuild": "^0.21.5",
+    "typescript": "^5.4.5"
+  }
+}

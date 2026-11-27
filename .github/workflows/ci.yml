@@ -1,0 +1,37 @@
+name: CI
+on:
+  push: { branches: [main] }
+  pull_request:
+jobs:
+  program:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Unit and runtime tests
+        run: cargo test --manifest-path programs/openhouse/Cargo.toml
+  client:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 20 }
+      - name: Shared client, parity tests, browser bundle
+        working-directory: packages/core
+        run: |
+          npm ci
+          npm run typecheck
+          npm test
+          npm run build:browser
+          npm run vendor
+      - name: Vendor bundle and index.html integrity must be up to date
+        run: git diff --exit-code vendor/ index.html
+      - name: Settler builds
+        working-directory: services/settler
+        run: |
+          npm ci
+          npm run typecheck
+          npm run build
+      - name: api/index.js must equal the settler bundle
+        run: cmp services/settler/bundle.cjs api/index.js
