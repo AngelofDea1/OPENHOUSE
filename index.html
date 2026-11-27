@@ -10018,8 +10018,7 @@ function render(root){
     body=seg([['crypto','Crypto'],['fiat','Bank, card or mobile']],mode,'mode');
     if(mode==='crypto'){
       body+=`<div class="cs-f"><label>Asset</label>${seg(Object.keys(CRY).map(k=>[k,k]),cur,'cur')}</div>
-      <div class="cs-addr"><div class="cs-qr" id="csQr"></div><div><div class="cs-l">Send ${cur} on ${CRY[cur].net} to Vault PDA</div><code id="csAddr">${VAULT_ADDR}</code><button type="button" class="btn sm" id="csCopy">Copy address</button></div></div>
-      <p class="cs-n">Only send ${cur} on ${CRY[cur].net}. Anything else is lost. The balance updates after 1 confirmation</p>
+      <p class="cs-n">Use the <strong>Deposit</strong> button below to sign an on-chain deposit into your Player PDA on ${CRY[cur].net}. Do not send raw wallet transfers to the Vault PDA.</p>
       <div class="cs-f"><label for="csAmt">Amount</label><div class="cs-in"><input id="csAmt" inputmode="decimal" value="${cur==='SOL'?'1':'100'}" autocomplete="off"><span>${cur}</span></div><div class="cs-hint" id="csHint"></div></div>
       <button type="button" class="btn hot lg" id="csGo">Deposit ${cur}</button>`;
     }else{
