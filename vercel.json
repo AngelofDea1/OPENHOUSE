@@ -7,10 +7,14 @@
       "config": { "maxDuration": 60 }
     },
     { "src": "index.html", "use": "@vercel/static" },
+    { "src": "favicon.png", "use": "@vercel/static" },
+    { "src": "og-banner.jpg", "use": "@vercel/static" },
     { "src": "vendor/**", "use": "@vercel/static" }
   ],
   "routes": [
     { "src": "/api/(.*)", "dest": "/api/index.js" },
+    { "src": "/favicon.png", "dest": "/favicon.png" },
+    { "src": "/og-banner.jpg", "dest": "/og-banner.jpg" },
     { "src": "/vendor/(.*)", "dest": "/vendor/$1" },
     { "src": "/(.*)", "dest": "/index.html" }
   ],
